@@ -1375,6 +1375,34 @@
   .auditHeader button,
   .auditHeader a,
   .ctaCard { display: none; }
+
+  /* Collapsed accordions (max-height: 0 + overflow: hidden) LEAK their
+     clipped text over the rows below when Chrome's print engine fragments
+     the card across pages — the "scrambled page 2" bug. A printed report
+     should show every finding anyway: expand them all (the !important beats
+     the inline collapsed max-height) and drop the interactive toggles. */
+  .findingsList {
+    max-height: none !important;
+    overflow: visible;
+  }
+
+  .findingsToggle { display: none; }
+
+  /* Bars can be caught mid-animation by the print snapshot. */
+  .dimBar { transition: none; }
+
+  /* Keep each card and each row-group on one page so nothing fragments. */
+  .reportCard,
+  .dimContainer,
+  .engineResult,
+  .scoreHero {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* One column in print — two dense columns don't fit a portrait page. */
+  .reportGrid,
+  .probeCompRow { grid-template-columns: 1fr; }
 }
 
 /* ─── Responsive ────────────────────────────────────────── */
