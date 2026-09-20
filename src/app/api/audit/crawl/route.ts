@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import * as cheerio from 'cheerio';
-import { runScorers, getGrade } from '@/lib/scoring';
+import { runScorers, getGrade, computeOverall, probeTotals } from '@/lib/scoring';
 import { probeClaudeVisibility } from '@/lib/auditor/ai-probe';
 import type { CrawlPage, CrawlRobotsData } from '@/types/audit';
 
@@ -497,30 +497,18 @@ export async function POST(req: NextRequest): Promise<Response> {
       aiProbe,
     };
 
-    let aiCitationScore = 0;
-    let aiTotalPrompts = 0;
-    if (aiProbe && aiProbe.results && aiProbe.results.length > 0 && aiProbe.totalPrompts > 0) {
-      aiCitationScore = (aiProbe.citedCount / aiProbe.totalPrompts) * 100;
-      aiTotalPrompts = aiProbe.totalPrompts;
-    }
-    const hasAiData = aiTotalPrompts > 0;
+    // One implementation, shared with lib/inngest/functions.ts. When the probe returns nothing
+    // this no longer silently redistributes its 40% across the other five — see computeOverall().
+    const overall = computeOverall(scored, probeTotals(aiProbe));
+    const overallScore = overall.overall_score;
+    const overallGrade = overall.overall_grade;
 
-    let overallScore: number;
-    if (hasAiData) {
-      overallScore = Math.round(
-        (aiCitationScore * 0.40) +
-        (scored.answerability_score * 0.12) +
-        (scored.brevity_score * 0.12) +
-        (scored.trust_score * 0.12) +
-        (scored.structure_score * 0.12) +
-        (scored.freshness_score * 0.12)
-      );
-    } else {
-      overallScore = Math.round(
-        (scored.answerability_score + scored.brevity_score + scored.trust_score + scored.structure_score + scored.freshness_score) / 5
-      );
-    }
-    const overallGrade = getGrade(overallScore);
+    // Recorded so a grade can be explained after the fact. There is no column for this yet, and
+    // raw_findings is already JSONB, so the fix ships without waiting on a migration.
+    rawFindings.aiProbeStatus = overall.ai_probe_status;
+    rawFindings.aiCitationScore = overall.ai_citation_score;
+    rawFindings.aiPromptsTotal = overall.ai_prompts_total;
+    rawFindings.aiCitedCount = overall.ai_cited_count;
 
     await supabase
       .from('audit_results')

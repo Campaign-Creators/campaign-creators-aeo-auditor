@@ -67,6 +67,14 @@ interface RawFindings {
   schemaMarkup?: unknown[];
   aiProbe?: AiProbe | MultiEngineProbe | null;
   customProbe?: CustomProbeData | null;
+  /* Recorded by computeOverall() in lib/scoring.ts. Absent on reports written before
+     2026-09-17 — treat undefined as unknown, never as ok. (This is the THIRD declaration of
+     RawFindings in the repo; src/types/audit.ts has the canonical one. Not consolidating it
+     here, but it is worth doing.) */
+  aiProbeStatus?: 'ok' | 'unavailable';
+  aiCitationScore?: number | null;
+  aiPromptsTotal?: number;
+  aiCitedCount?: number;
 }
 
 function isMultiEngineProbe(probe: AiProbe | MultiEngineProbe): probe is MultiEngineProbe {
@@ -389,6 +397,15 @@ export default function AuditResultPage({ requestData, auditData }: Props) {
   }
   const hasAiData = totalAiPrompts > 0;
 
+  /* Prefer what the scorer RECORDED over what this component can infer.
+   *
+   * `aiProbeStatus` is absent on every report written before 2026-09-17, so it falls back to
+   * the derived check. Note the order: an ABSENT status must not read as ok, because the old
+   * rows are exactly the ones where the probe most often did not run. */
+  const aiProbeUnavailable = rf?.aiProbeStatus
+    ? rf.aiProbeStatus === 'unavailable'
+    : !hasAiData;
+
   // Aggregate competitor domains from AI probe responses
   const competitorMap = new Map<string, number>();
   const userDomain = requestData.url.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '').toLowerCase();
@@ -539,6 +556,16 @@ export default function AuditResultPage({ requestData, auditData }: Props) {
                 return 'Critical';
               })()}
             </div>
+
+            {/* The AI half of this score is 40% of it. When the probe cannot run, the other five
+                dimensions are scored on their own scale — a legitimate number, but not the number
+                this report is named after. Say so rather than let the reader assume we checked. */}
+            {aiProbeUnavailable && (
+              <p className={styles.aiUnavailable}>
+                AI visibility check unavailable for this run — the score above reflects your
+                site&apos;s content signals only, not whether AI engines actually cite you.
+              </p>
+            )}
             <button
               className={styles.heroCtaBtn}
               onClick={() => gatedSectionRef.current?.scrollIntoView({ behavior: 'smooth' })}
@@ -562,7 +589,9 @@ export default function AuditResultPage({ requestData, auditData }: Props) {
               if (aiRate >= 0.75) return <h2>Your brand is well-cited by AI engines. Here&apos;s how to stay ahead.</h2>;
               if (aiRate >= 0.40) return <h2>Your brand appears in some AI answers. Here&apos;s where to push further.</h2>;
               if (aiRate > 0 && hasAiData) return <h2>Your brand has limited AI citation. Here&apos;s what you&apos;re leaving on the table.</h2>;
-              if (!hasAiData && target >= 70) return <h2>Your brand has solid AI signals. Here&apos;s where to push further.</h2>;
+              // NOT "solid AI signals" — there are none in this branch. The probe did not run,
+              // so the only honest claim is about the content we actually measured.
+              if (!hasAiData && target >= 70) return <h2>Your content signals are strong. Here&apos;s where to push further.</h2>;
               if (!hasAiData && target >= 50) return <h2>Your brand has limited AI visibility. Here&apos;s what you&apos;re leaving on the table.</h2>;
               return <h2>Your brand is invisible to AI search. Here&apos;s what that&apos;s costing you.</h2>;
             })()}

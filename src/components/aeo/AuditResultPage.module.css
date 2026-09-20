@@ -1571,3 +1571,15 @@
     font-size: 13px;
   }
 }
+
+/* Not a bordered callout: DESIGN_SYSTEM.md anti-patterns forbid boxing content in borders and
+   forbid shadows — separation here is whitespace. --color-warning is allowed because this is a
+   genuine status state, which is the one use status colours have. */
+.aiUnavailable {
+  margin-top: 14px;
+  max-width: 42ch;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--color-warning);
+}

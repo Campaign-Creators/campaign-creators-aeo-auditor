@@ -1,3 +1,6 @@
+/** Did the AI-visibility probe run? 'unavailable' means ai_citation is NOT in the score. */
+export type AiProbeStatus = 'ok' | 'unavailable';
+
 export interface Signal {
   label: string;
   value: string | number | boolean;
@@ -17,6 +20,22 @@ export interface RawFindings {
   canonicalUrl: string | null;
   openGraphPresent: boolean;
   structuredDataTypes: string[];
+
+  /* Whether the AI-visibility probe actually ran, and what it found.
+   *
+   * Optional because 290 rows were written before these existed. A reader must treat
+   * `undefined` as "unknown", NOT as "ok" — the historical rows are precisely the ones where
+   * the probe most often did not run, so defaulting the missing case to ok would hide the
+   * reports this was added to explain.
+   *
+   * These live in raw_findings (JSONB) rather than columns of their own so the fix ships
+   * without waiting on a migration to a production database somebody else owns. Promoting
+   * them to real columns is a follow-up, worth doing for queryability. */
+  aiProbeStatus?: AiProbeStatus;
+  /** null when the probe did not run. 0 is a real answer: cited nowhere. */
+  aiCitationScore?: number | null;
+  aiPromptsTotal?: number;
+  aiCitedCount?: number;
 }
 
 export interface CrawledPage {

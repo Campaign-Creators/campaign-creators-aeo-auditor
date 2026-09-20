@@ -1,4 +1,5 @@
 import type {
+  AiProbeStatus,
   CrawlPage,
   CrawlRobotsData,
   RawFindings,
@@ -196,5 +197,134 @@ export function runScorers(input: RunScorersInput): RunScorersResult {
     overall_score: overall,
     overall_grade: getGrade(overall),
     raw_findings: findings,
+  };
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The overall score, and whether the AI-visibility half of it actually ran.
+ *
+ * WHY THIS IS HERE AND NOT AT THE CALL SITE
+ *
+ * This arithmetic was written twice — once in app/api/audit/crawl/route.ts and once in
+ * lib/inngest/functions.ts — and the two copies had already drifted in how they read the probe
+ * (one expects a single result object, the other sums four engines). Both carried the same
+ * defect, so fixing one would have fixed half the audits.
+ *
+ * THE DEFECT. When the probe returned nothing, the old code silently dropped ai_citation and
+ * averaged the remaining five dimensions equally. ai_citation is 40% of the score and a site
+ * that nothing cites scores ZERO there, so dropping it does not neutralise the dimension — it
+ * deletes a zero. A site whose other five average 70 scores 42 (F) when the probe runs and 70
+ * (B) when it fails. Measured against the live database on 2026-09-17: 23 of 290 stored reports
+ * took that path, and 14 of them carry a grade that would otherwise be F — three of those are
+ * showing a B.
+ *
+ * WHAT CHANGED. The numbers are deliberately IDENTICAL to before. Re-scoring 290 historical
+ * reports is not this function's decision to make. What is new is that the result says which
+ * formula produced it, so the report can tell the reader that the AI check did not run instead
+ * of presenting a confident grade built on a missing 40%.
+ * ------------------------------------------------------------------------------------------- */
+
+/** ai_citation's share of the overall score. The other five split the remainder evenly. */
+export const AI_CITATION_WEIGHT = 0.4;
+/** Each of answerability, brevity, trust, structure, freshness. 5 x 0.12 + 0.40 = 1.00. */
+export const CONTENT_DIMENSION_WEIGHT = 0.12;
+
+/** A probe reduced to the only two numbers scoring needs. */
+export interface AiProbeTotals {
+  citedCount: number;
+  totalPrompts: number;
+}
+
+export interface OverallResult {
+  overall_score: number;
+  overall_grade: string;
+  /** 'unavailable' means ai_citation is NOT in overall_score — say so on the report. */
+  ai_probe_status: AiProbeStatus;
+  /** null when the probe did not run. Zero is a real answer and means "cited nowhere". */
+  ai_citation_score: number | null;
+  ai_prompts_total: number;
+  ai_cited_count: number;
+}
+
+/**
+ * Reduce either probe shape to totals, or null when there is nothing to score.
+ *
+ * Two shapes exist because the two call sites grew apart: the crawl route probes Claude alone
+ * and hands back one result object; the Inngest pipeline probes four engines and hands back a
+ * map of them. Both are accepted here so neither call site has to know about the other.
+ *
+ * A probe that ran and returned zero prompts is treated as NOT having run. An empty denominator
+ * cannot express "cited nowhere" — it can only express "we did not ask".
+ */
+export function probeTotals(probe: unknown): AiProbeTotals | null {
+  if (!probe || typeof probe !== 'object') return null;
+  const p = probe as Record<string, unknown>;
+
+  const readOne = (v: unknown): AiProbeTotals | null => {
+    if (!v || typeof v !== 'object') return null;
+    const e = v as Record<string, unknown>;
+    const total = typeof e.totalPrompts === 'number' ? e.totalPrompts : 0;
+    const cited = typeof e.citedCount === 'number' ? e.citedCount : 0;
+    if (total <= 0) return null;
+    return { citedCount: cited, totalPrompts: total };
+  };
+
+  const single = readOne(p);
+  if (single) return single;
+
+  let citedCount = 0;
+  let totalPrompts = 0;
+  for (const key of ['claude', 'openai', 'perplexity', 'google']) {
+    const one = readOne(p[key]);
+    if (one) {
+      citedCount += one.citedCount;
+      totalPrompts += one.totalPrompts;
+    }
+  }
+  return totalPrompts > 0 ? { citedCount, totalPrompts } : null;
+}
+
+export function computeOverall(
+  scored: Pick<
+    RunScorersResult,
+    | 'answerability_score'
+    | 'brevity_score'
+    | 'trust_score'
+    | 'structure_score'
+    | 'freshness_score'
+  >,
+  probe: AiProbeTotals | null,
+): OverallResult {
+  const five =
+    scored.answerability_score +
+    scored.brevity_score +
+    scored.trust_score +
+    scored.structure_score +
+    scored.freshness_score;
+
+  if (!probe) {
+    // No AI data. Score the five dimensions we DO have, on their own scale, and flag it.
+    const overall = Math.round(five / 5);
+    return {
+      overall_score: overall,
+      overall_grade: getGrade(overall),
+      ai_probe_status: 'unavailable',
+      ai_citation_score: null,
+      ai_prompts_total: 0,
+      ai_cited_count: 0,
+    };
+  }
+
+  const aiCitationScore = (probe.citedCount / probe.totalPrompts) * 100;
+  const overall = Math.round(
+    aiCitationScore * AI_CITATION_WEIGHT + five * CONTENT_DIMENSION_WEIGHT,
+  );
+  return {
+    overall_score: overall,
+    overall_grade: getGrade(overall),
+    ai_probe_status: 'ok',
+    ai_citation_score: aiCitationScore,
+    ai_prompts_total: probe.totalPrompts,
+    ai_cited_count: probe.citedCount,
   };
 }
