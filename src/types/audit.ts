@@ -81,6 +81,8 @@ export interface CrawlPage {
   canonicalUrl: string | null;
   robotsMeta: string | null;
   openGraphTags: Record<string, string>;
+  /** ISO date from the Last-Modified header, page metadata or JSON-LD; null when the page publishes none. */
+  lastModified: string | null;
   fetchError: string | null;
 }
 
