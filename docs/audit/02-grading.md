@@ -164,10 +164,28 @@ would score 0 on that dimension, removing it deletes a zero and lifts the averag
 **Eight of twelve carry a grade the scoring rules would not give them**, and two of those are B —
 shown to the client as "Good AEO foundation. Several opportunities exist."
 
-*Discrepancy to resolve before quoting either figure to Bob:* the parked branch `fix/ai-probe-caveat`
-states 23 affected audits, 14 F-flips and 3 Bs. This report measures 12 / 8 / 2 by reconstructing
-each stored row's arithmetic from its own dimension scores and probe totals. The two counts use
-different definitions of "the probe did not run" and the difference has not been reconciled.
+*Reconciled 2026-09-21.* The parked branch `fix/ai-probe-caveat` said 23 affected audits, 14
+F-flips and 3 Bs. **12 / 8 / 2 is the correct triple** and the branch comment has been corrected.
+
+The stored rows have not changed since 2026-09-14 — `audit_results.updated_at` has no row newer
+than that — so this was never data drift, only a difference in how "the probe did not run" was
+defined. Replaying every plausible definition over the same 290 rows:
+
+| Definition | n | F-flips | now showing B |
+|---|---|---|---|
+| **`probeTotals()` returns null** — the helper the fix itself uses | **12** | **8** | **2** |
+| Four engine totals sum to 0 (ignores the single-probe shape) | 17 | 11 | 2 |
+| Any one engine key absent | 19 | 13 | 2 |
+| Stored overall equals the 5-dimension average, ±1 | **23** | 11 | 0 |
+| Stored overall does not match the weighted formula, ±1 | 21 | 15 | 3 |
+
+The 23 comes from the fourth row: inferring the path by matching the stored score against the
+average. It over-counts by 11, because a weighted score with a low citation rate often lands
+within a point of the average anyway. No single definition yields 23/14/3, so that triple appears
+to have been assembled from more than one query.
+
+The two reports currently showing a B are **thechannelcompany.com** (70 B → 41 F) and
+**surfsoccer.com** (73 B → 42 F). Nine of the twelve are audits of campaigncreators.com itself.
 
 ### G6 — HIGH. When prompt generation fails, the fallback prompts name the client's domain
 
