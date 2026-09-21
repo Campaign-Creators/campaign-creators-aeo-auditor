@@ -3,9 +3,15 @@
 // These exist because of a defect measured against the live database on 2026-09-17: when the
 // probe returned nothing, the scorer dropped ai_citation — 40% of the grade — and averaged the
 // remaining five dimensions equally. ai_citation is zero for a site nothing cites, so dropping it
-// does not neutralise the dimension, it deletes a zero and the grade goes UP. 23 of 290 stored
-// reports took that path and 14 of them carry a grade that would otherwise be F. Three are
-// showing a B.
+// does not neutralise the dimension, it deletes a zero and the grade goes UP. Re-measured
+// 2026-09-20 with probeTotals() itself as the test: 12 of 290 stored reports took that path,
+// 8 of them carry a grade that would otherwise be F, and 2 of those 8 are showing a B
+// (thechannelcompany.com 70 B -> 41 F, surfsoccer.com 73 B -> 42 F).
+//
+// An earlier note here said 23 / 14 / 3. That 23 came from inferring the path by matching each
+// stored overall against the 5-dimension average within +/-1, which also catches 11 reports whose
+// probe DID run and whose weighted score happens to land within a point of the average. The
+// stored rows have not changed since 2026-09-14, so this is a definition difference, not drift.
 //
 // Before this file, src/lib/scoring.ts had no tests at all, and neither did the two route handlers
 // that duplicated this arithmetic between them.

@@ -214,9 +214,11 @@ export function runScorers(input: RunScorersInput): RunScorersResult {
  * averaged the remaining five dimensions equally. ai_citation is 40% of the score and a site
  * that nothing cites scores ZERO there, so dropping it does not neutralise the dimension — it
  * deletes a zero. A site whose other five average 70 scores 42 (F) when the probe runs and 70
- * (B) when it fails. Measured against the live database on 2026-09-17: 23 of 290 stored reports
- * took that path, and 14 of them carry a grade that would otherwise be F — three of those are
- * showing a B.
+ * (B) when it fails. Re-measured against the live database on 2026-09-20, using probeTotals()
+ * below as the definition of "the probe ran": 12 of 290 stored reports took that path, 8 carry a
+ * grade that would otherwise be F, and 2 of those are showing a B. (An earlier note said 23/14/3;
+ * that count inferred the path from the stored score matching the 5-dimension average, which also
+ * catches reports whose probe ran. The rows themselves have not changed since 2026-09-14.)
  *
  * WHAT CHANGED. The numbers are deliberately IDENTICAL to before. Re-scoring 290 historical
  * reports is not this function's decision to make. What is new is that the result says which
