@@ -205,9 +205,30 @@ async function ensurePropertiesExist(token: string): Promise<void> {
 // Core upsert (search-then-create/update)
 // ---------------------------------------------------------------------------
 
+/**
+ * Standard HubSpot properties this integration will FILL when blank but never REPLACE.
+ *
+ * The audit gate collects a name and an email from whoever is reading a report. That is
+ * not authority to rewrite a contact record: a customer who runs the free audit out of
+ * curiosity used to have their lifecycle stage reset to `lead` and their `website`
+ * replaced with whatever domain they happened to audit, and anyone who knew a contact's
+ * address could do the same deliberately through a public endpoint.
+ *
+ * Filling a blank is still useful — that is what makes the integration worth having —
+ * so the rule is fill, never overwrite. See docs/audit/03-hubspot.md H1 and M1.
+ */
+const FILL_IF_EMPTY = ['firstname', 'lastname', 'website', 'lifecyclestage'] as const;
+
+type FillIfEmptyKey = (typeof FILL_IF_EMPTY)[number];
+
+function isBlank(value: string | undefined | null): boolean {
+  return value === undefined || value === null || value.trim() === '';
+}
+
 export async function upsertContact(
   email: string,
   properties: HubSpotContactProperties = {},
+  fillIfEmpty: Partial<Record<FillIfEmptyKey, string>> = {},
 ): Promise<HubSpotContactResponse | null> {
   const token = getToken();
   if (!token) {
@@ -240,7 +261,7 @@ export async function upsertContact(
           filters: [{ propertyName: 'email', operator: 'EQ', value: email }],
         },
       ],
-      properties: ['email'],
+      properties: ['email', ...FILL_IF_EMPTY],
       limit: 1,
     }),
   });
@@ -251,16 +272,41 @@ export async function upsertContact(
     return null;
   }
 
-  const searchData = (await searchRes.json()) as { results?: Array<{ id: string }> };
-  const existingId = searchData.results?.[0]?.id;
+  const searchData = (await searchRes.json()) as {
+    results?: Array<{ id: string; properties?: Record<string, string | null> }>;
+  };
+  const existing = searchData.results?.[0];
+  const existingId = existing?.id;
 
   if (existingId) {
+    /* An existing contact keeps every field it already has. Only the aeo_* properties,
+       which belong to this integration, are written unconditionally. */
+    const patch: Record<string, string> = { ...normalized };
+    const current = existing?.properties ?? {};
+    const skipped: string[] = [];
+
+    for (const key of FILL_IF_EMPTY) {
+      const incoming = fillIfEmpty[key];
+      if (!incoming) continue;
+      if (isBlank(current[key])) {
+        patch[key] = incoming;
+      } else {
+        skipped.push(key);
+      }
+    }
+
+    if (skipped.length > 0) {
+      console.log(
+        `[hubspot] contact ${existingId}: kept existing ${skipped.join(', ')} rather than overwriting`,
+      );
+    }
+
     const updateRes = await fetch(
       `${HUBSPOT_API_BASE}/crm/v3/objects/contacts/${existingId}`,
       {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({ properties: normalized }),
+        body: JSON.stringify({ properties: patch }),
       },
     );
     if (!updateRes.ok) {
@@ -271,10 +317,11 @@ export async function upsertContact(
     return (await updateRes.json()) as HubSpotContactResponse;
   }
 
+  /* Nothing to preserve on a contact that does not exist yet. */
   const createRes = await fetch(`${HUBSPOT_API_BASE}/crm/v3/objects/contacts`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ properties: normalized }),
+    body: JSON.stringify({ properties: { ...normalized, ...fillIfEmpty } }),
   });
 
   if (!createRes.ok) {
@@ -293,13 +340,16 @@ export async function upsertContact(
 export async function syncAeoLead(payload: AeoLeadPayload): Promise<HubSpotContactResponse | null> {
   const { firstName, lastName } = splitName(payload.fullName);
 
-  const properties: HubSpotContactProperties = {
-    // Standard HubSpot properties
+  /* Standard HubSpot fields: offered, not imposed. upsertContact writes these only
+     when the contact is new or the field is empty. */
+  const fillIfEmpty = {
     firstname: firstName,
     lastname: lastName,
     website: payload.auditedDomain,
     lifecyclestage: 'lead',
+  };
 
+  const properties: HubSpotContactProperties = {
     // Custom AEO properties (auto-created by ensurePropertiesExist)
     aeo_overall_score: payload.overallScore,
     aeo_overall_grade: payload.overallGrade,
@@ -324,5 +374,5 @@ export async function syncAeoLead(payload: AeoLeadPayload): Promise<HubSpotConta
     missing: payload.enginesMissing,
   });
 
-  return upsertContact(payload.email, properties);
+  return upsertContact(payload.email, properties, fillIfEmpty);
 }
