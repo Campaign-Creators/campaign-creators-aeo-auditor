@@ -26,7 +26,22 @@ interface AuditRequestRow {
   id: string;
   status: AuditStatus;
   url: string;
+  created_at: string;
 }
+
+/**
+ * An audit still claiming to be in progress after this long is not in progress.
+ *
+ * The pipeline only ever wrote `pending`, `processing` or `complete`; when a run died
+ * the row kept its last value and this route kept answering "still working", so the
+ * visitor's progress screen span forever. 14 rows have been stuck that way since June.
+ * `onFailure` in lib/inngest/functions.ts now writes `failed` for new runs — this rule
+ * covers the ones already stuck and any failure mode that never reaches a writer.
+ *
+ * Longer than the worst honest run measured across 290 audits (p90 was 15.4 minutes,
+ * and the crawl is now capped well below that). See docs/audit/01-crawler.md F5.
+ */
+const STALE_AFTER_MS = 30 * 60 * 1000;
 
 interface AuditResultRow {
   answerability_score: number | null;
@@ -66,7 +81,7 @@ export async function GET(
 
     const { data: requestData, error: requestError } = await supabase
       .from('audit_requests')
-      .select('id, status, url')
+      .select('id, status, url, created_at')
       .eq('id', auditId)
       .maybeSingle();
 
@@ -85,6 +100,20 @@ export async function GET(
     const domain_url = audit.url;
 
     if (audit.status === 'pending' || audit.status === 'processing') {
+      const startedMs = new Date(audit.created_at).getTime();
+      const stalled =
+        Number.isFinite(startedMs) && Date.now() - startedMs > STALE_AFTER_MS;
+
+      if (stalled) {
+        return NextResponse.json({
+          auditId,
+          status: 'failed',
+          domain_url,
+          error:
+            'Nothing was charged and no report was produced. Running it again is the fix.',
+        });
+      }
+
       return NextResponse.json({
         auditId,
         status: audit.status,
@@ -97,7 +126,8 @@ export async function GET(
         auditId,
         status: 'failed',
         domain_url,
-        error: null,
+        error:
+          'Nothing was charged and no report was produced. Running it again is the fix.',
       });
     }
 

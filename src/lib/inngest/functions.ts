@@ -16,6 +16,10 @@ const ROBOTS_TIMEOUT_MS = 8000;
 const SITEMAP_TIMEOUT_MS = 8000;
 const PAGE_TIMEOUT_MS = 10000;
 const PAGE_DELAY_MS = 500;
+/* Stop crawling before the platform kills the invocation. A crawl that runs out of
+   time now returns what it has; it used to be killed mid-step, which skipped every
+   status write and left the audit in `processing` forever. See docs/audit/01-crawler.md F5. */
+const CRAWL_BUDGET_MS = 240_000;
 
 function emptyRobots(): CrawlRobotsData {
   return {
@@ -324,7 +328,36 @@ Return valid JSON only, no markdown fences.`,
 }
 
 export const runAudit = inngest.createFunction(
-  { id: 'run-audit', retries: 1, triggers: [{ event: 'audit/requested' }] },
+  {
+    id: 'run-audit',
+    retries: 1,
+    triggers: [{ event: 'audit/requested' }],
+    /* Nothing wrote `failed` before this. The handler's own catch only fires for errors
+       it survives to catch: a platform timeout kills the process first. onFailure runs
+       after retries are exhausted, whatever the cause, so the row stops claiming to be
+       in progress and the visitor's page stops spinning. */
+    onFailure: async ({ event, error }) => {
+      const original = event.data.event?.data as { auditId?: string } | undefined;
+      const auditId = original?.auditId;
+      if (!auditId) {
+        console.error('[run-audit] failed with no auditId in the triggering event:', error?.message);
+        return;
+      }
+      const supabase = createClient(
+        (process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').trim(),
+        (process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').trim(),
+      );
+      const { error: writeError } = await supabase
+        .from('audit_requests')
+        .update({ status: 'failed', updated_at: new Date().toISOString() })
+        .eq('id', auditId);
+      if (writeError) {
+        console.error('[run-audit] could not mark audit failed:', JSON.stringify(writeError));
+      } else {
+        console.error(`[run-audit] audit ${auditId} marked failed: ${error?.message ?? 'unknown error'}`);
+      }
+    },
+  },
   async ({ event, step }) => {
     const { auditId, domainUrl } = event.data as { auditId: string; domainUrl: string };
 
@@ -383,7 +416,16 @@ export const runAudit = inngest.createFunction(
       for (const u of sitemapUrls) pushCandidate(u);
 
       const crawledPages: CrawlPage[] = [];
+      const deadline = Date.now() + CRAWL_BUDGET_MS;
+      let budgetExhausted = false;
       for (let i = 0; i < candidates.length && crawledPages.length < MAX_PAGES; i++) {
+        if (Date.now() >= deadline) {
+          budgetExhausted = true;
+          console.warn(
+            `[crawl] budget reached for ${domainUrl} after ${crawledPages.length} pages; scoring what we have`,
+          );
+          break;
+        }
         if (crawledPages.length > 0) {
           await new Promise((r) => setTimeout(r, PAGE_DELAY_MS));
         }
@@ -395,7 +437,7 @@ export const runAudit = inngest.createFunction(
         }
       }
 
-      return { crawledPages, robotsData, sitemapUrls };
+      return { crawledPages, robotsData, sitemapUrls, budgetExhausted };
     });
 
     const aiProbeResult = await step.run('ai-probe', async () => {
@@ -420,7 +462,7 @@ export const runAudit = inngest.createFunction(
     });
 
     await step.run('store-results', async () => {
-      const { crawledPages, robotsData, sitemapUrls } = crawlResult;
+      const { crawledPages, robotsData, sitemapUrls, budgetExhausted } = crawlResult;
       const scored = runScorers({ crawledPages, robotsData, domainUrl, sitemapUrls });
 
       const rawFindings = {
@@ -428,6 +470,7 @@ export const runAudit = inngest.createFunction(
         pages: crawledPages,
         robots: robotsData,
         aiProbe: aiProbeResult,
+        crawlTruncated: budgetExhausted,
       };
 
       // One implementation, shared with app/api/audit/crawl/route.ts. probeTotals() sums the

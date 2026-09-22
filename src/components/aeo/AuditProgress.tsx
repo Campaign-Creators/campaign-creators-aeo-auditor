@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import styles from './AuditProgress.module.css';
 
 interface Props {
@@ -150,6 +151,7 @@ function renderStageIcon(icon: string, state: StageState) {
 export default function AuditProgress({ domain, auditId }: Props) {
   const [elapsed, setElapsed]       = useState(0);
   const [completed, setCompleted]   = useState(false);
+  const [failure, setFailure]       = useState<string | null>(null);
   const rafRef    = useRef<number | null>(null);
   const t0Perf    = useRef<number>(0);
   const startTime = useRef<Date>(new Date());
@@ -172,12 +174,23 @@ export default function AuditProgress({ domain, auditId }: Props) {
 
   // Poll for completion every 3 seconds
   useEffect(() => {
+    if (failure) return;
+
     const poll = async () => {
       try {
         const res = await fetch(`/api/audit/${auditId}/status`);
         if (!res.ok) return;
         const data = await res.json();
         if (data.status === 'complete') setCompleted(true);
+        /* A failed audit used to be ignored here, so the screen span for as long as the
+           visitor was willing to watch. See docs/audit/01-crawler.md F5. */
+        if (data.status === 'failed') {
+          setFailure(
+            typeof data.error === 'string' && data.error
+              ? data.error
+              : 'This audit stopped before it finished.',
+          );
+        }
       } catch {
         // silent — next poll will retry
       }
@@ -185,7 +198,16 @@ export default function AuditProgress({ domain, auditId }: Props) {
 
     const id = setInterval(poll, 3000);
     return () => clearInterval(id);
-  }, [auditId]);
+  }, [auditId, failure]);
+
+  // A finished audit, successful or not, stops the clock
+  useEffect(() => {
+    if (!failure) return;
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  }, [failure]);
 
   // On completion: stop RAF, redirect after 1.5s
   useEffect(() => {
@@ -232,8 +254,8 @@ export default function AuditProgress({ domain, auditId }: Props) {
             <span>sitemap.xml found</span>
           </div>
         </div>
-        <span className={styles.inProgressBadge}>
-          {completed ? 'COMPLETE' : 'IN PROGRESS'}
+        <span className={styles.inProgressBadge} data-state={failure ? 'failed' : completed ? 'complete' : 'running'}>
+          {failure ? 'STOPPED' : completed ? 'COMPLETE' : 'IN PROGRESS'}
         </span>
       </div>
 
@@ -267,16 +289,24 @@ export default function AuditProgress({ domain, auditId }: Props) {
       </div>
 
       {/* ── Progress bar ───────────────────────────────── */}
-      <div className={styles.progressSection}>
-        <div className={styles.progressTrack}>
-          <div className={styles.progressFill} style={{ width: `${progress}%` }} />
+      {failure ? (
+        <div className={styles.failureSection} role="status">
+          <p className={styles.failureHeading}>This audit stopped before it finished</p>
+          <p className={styles.failureBody}>{failure}</p>
+          <Link href="/" className={styles.failureAction}>Run it again →</Link>
         </div>
-        <p className={styles.progressLabel}>
-          {completed
-            ? '100% · Audit complete'
-            : `${Math.round(progress)}% · ${elapsedS}s elapsed`}
-        </p>
-      </div>
+      ) : (
+        <div className={styles.progressSection}>
+          <div className={styles.progressTrack}>
+            <div className={styles.progressFill} style={{ width: `${progress}%` }} />
+          </div>
+          <p className={styles.progressLabel}>
+            {completed
+              ? '100% · Audit complete'
+              : `${Math.round(progress)}% · ${elapsedS}s elapsed`}
+          </p>
+        </div>
+      )}
 
       {/* ── Live log ───────────────────────────────────── */}
       <div className={styles.auditLog}>

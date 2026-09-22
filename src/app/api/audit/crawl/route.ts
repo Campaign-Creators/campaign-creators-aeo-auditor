@@ -25,6 +25,9 @@ const ROBOTS_TIMEOUT_MS = 8000;
 const SITEMAP_TIMEOUT_MS = 8000;
 const PAGE_TIMEOUT_MS = 10000;
 const PAGE_DELAY_MS = 500;
+/* Below this route's maxDuration of 60s, so the crawl ends on its own terms and the
+   handler still reaches its status writes. See docs/audit/01-crawler.md F5. */
+const CRAWL_BUDGET_MS = 45_000;
 
 function emptyRobots(): CrawlRobotsData {
   return {
@@ -461,11 +464,20 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     // crawl up to MAX_PAGES HTML pages; non-HTML are skipped and not counted
     const crawledPages: CrawlPage[] = [];
+    const deadline = Date.now() + CRAWL_BUDGET_MS;
+    let budgetExhausted = false;
     for (
       let i = 0;
       i < candidates.length && crawledPages.length < MAX_PAGES;
       i++
     ) {
+      if (Date.now() >= deadline) {
+        budgetExhausted = true;
+        console.warn(
+          `[crawl] budget reached for ${domainUrl} after ${crawledPages.length} pages; scoring what we have`,
+        );
+        break;
+      }
       if (crawledPages.length > 0) {
         await new Promise((r) => setTimeout(r, PAGE_DELAY_MS));
       }
@@ -501,6 +513,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       pages: crawledPages,
       robots: robotsData,
       aiProbe,
+      crawlTruncated: budgetExhausted,
     };
 
     // One implementation, shared with lib/inngest/functions.ts. When the probe returns nothing
