@@ -109,6 +109,20 @@ describe('upsertContact on a contact that already exists', () => {
     expect(props.lifecyclestage).toBe('lead');
   });
 
+  it('writes no standard field when the search response carries no properties at all', async () => {
+    // If we cannot see the contact's current values, every field looks blank — and filling
+    // on that assumption is the overwrite this whole change exists to prevent.
+    mockHubSpot({ id: '505' } as unknown as { id: string; properties: Record<string, string> });
+
+    await upsertContact('invisible@example.com', AEO, OFFERED);
+
+    const props = writtenProps();
+    expect(props.aeo_overall_grade).toBe('F');
+    expect(props).not.toHaveProperty('firstname');
+    expect(props).not.toHaveProperty('website');
+    expect(props).not.toHaveProperty('lifecyclestage');
+  });
+
   it('asks the search step for the fields it might fill', async () => {
     mockHubSpot({ id: '504', properties: { email: 'x@example.com' } });
 

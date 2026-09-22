@@ -282,16 +282,25 @@ export async function upsertContact(
     /* An existing contact keeps every field it already has. Only the aeo_* properties,
        which belong to this integration, are written unconditionally. */
     const patch: Record<string, string> = { ...normalized };
-    const current = existing?.properties ?? {};
+    const current = existing?.properties;
     const skipped: string[] = [];
 
-    for (const key of FILL_IF_EMPTY) {
-      const incoming = fillIfEmpty[key];
-      if (!incoming) continue;
-      if (isBlank(current[key])) {
-        patch[key] = incoming;
-      } else {
-        skipped.push(key);
+    /* No properties in the search response means we cannot tell a blank field from a
+       populated one. Filling on that assumption is exactly the overwrite this change
+       exists to prevent, so when we cannot see, we do not write. */
+    if (!current) {
+      console.warn(
+        `[hubspot] contact ${existingId}: search returned no properties; leaving standard fields untouched`,
+      );
+    } else {
+      for (const key of FILL_IF_EMPTY) {
+        const incoming = fillIfEmpty[key];
+        if (!incoming) continue;
+        if (isBlank(current[key])) {
+          patch[key] = incoming;
+        } else {
+          skipped.push(key);
+        }
       }
     }
 
