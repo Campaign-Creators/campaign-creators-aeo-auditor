@@ -99,7 +99,7 @@ export async function POST(
   if (leadError) {
     console.error('[unlock] Supabase leads upsert failed:', JSON.stringify(leadError));
   } else {
-    console.log('[unlock] Lead saved to Supabase:', email);
+    console.log('[unlock] lead saved for audit', auditId);
   }
 
   // Touch the audit_requests updated_at
@@ -112,7 +112,9 @@ export async function POST(
     /* ignore */
   }
 
-  console.log('LEAD_CAPTURED:', JSON.stringify({ auditId, name, email }));
+  /* The lead's name and email used to be written here on every unlock. The row is in
+     Supabase and the contact is in HubSpot; the log only needs to say which audit. */
+  console.log('LEAD_CAPTURED:', JSON.stringify({ auditId }));
 
   // ── 2. Sync to HubSpot (async, non-blocking) ─────────────────────────
   // Fire-and-forget so the user isn't waiting on HubSpot

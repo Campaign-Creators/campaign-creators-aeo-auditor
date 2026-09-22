@@ -317,7 +317,7 @@ export async function syncAeoLead(payload: AeoLeadPayload): Promise<HubSpotConta
     aeo_lead_source: 'AEO Auditor',
   };
 
-  console.log('[hubspot] Syncing AEO lead:', payload.email, {
+  console.log('[hubspot] syncing AEO lead for', payload.auditedDomain, {
     score: payload.overallScore,
     grade: payload.overallGrade,
     cited: payload.enginesCited,
