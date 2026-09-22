@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { inngest } from '@/lib/inngest/client';
 
 export const runtime = 'nodejs';
@@ -90,17 +90,6 @@ function isPrivateOrIP(hostname: string): boolean {
 function normalizeUrl(input: string): string {
   const u = new URL(input);
   return `https://${u.hostname}`;
-}
-
-function getClientIp(request: NextRequest): string {
-  const xff = request.headers.get('x-forwarded-for');
-  if (xff) {
-    const first = xff.split(',')[0]?.trim();
-    if (first) return first;
-  }
-  const real = request.headers.get('x-real-ip');
-  if (real) return real.trim();
-  return '127.0.0.1';
 }
 
 export async function POST(request: NextRequest): Promise<Response> {

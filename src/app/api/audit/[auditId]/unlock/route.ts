@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { syncAeoLead, type AeoLeadPayload } from '@/lib/hubspot';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -46,11 +47,38 @@ function findTopWeakness(result: {
   return dimensions[0]?.name ?? 'Unknown';
 }
 
+/**
+ * Unlocks are rate limited on their own budget, separate from the one that governs
+ * starting an audit, so a visitor running several audits cannot exhaust their own
+ * ability to read the reports.
+ *
+ * This is defence in depth, not the protection that matters: one request is enough to
+ * write a contact, so the limit changes how fast, not whether. What stops an unlock from
+ * damaging an existing CRM record is that the sync now fills blank fields only —
+ * see lib/hubspot.ts and docs/audit/03-hubspot.md H1.
+ */
+const UNLOCK_LIMIT = Number.parseInt(process.env.RATE_LIMIT_UNLOCK_MAX ?? '10', 10) || 10;
+
 export async function POST(
   request: NextRequest,
   ctx: { params: Promise<{ auditId: string }> },
 ): Promise<Response> {
   const { auditId } = await ctx.params;
+
+  try {
+    const { limited } = await checkRateLimit(`unlock:${getClientIp(request)}`, UNLOCK_LIMIT);
+    if (limited) {
+      return NextResponse.json(
+        { error: 'Too many unlock attempts. Try again later.', retryAfterSeconds: 3600 },
+        { status: 429, headers: { 'Retry-After': '3600' } },
+      );
+    }
+  } catch (err) {
+    /* Fail open. A database hiccup in the limiter must not cost a real lead — the CRM
+       itself is protected by the fill-if-empty rule, so an unlimited unlock is a
+       nuisance, while a dropped capture is a lost customer. */
+    console.error('[unlock] rate limit check failed; allowing the request:', err);
+  }
 
   let body: unknown;
   try {

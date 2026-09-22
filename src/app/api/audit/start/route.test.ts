@@ -7,6 +7,9 @@ const { rateLimitMock, supabaseInsertMock } = vi.hoisted(() => ({
 
 vi.mock('@/lib/rateLimit', () => ({
   checkRateLimit: rateLimitMock,
+  /* getClientIp moved into this module so both rate-limited routes bucket callers
+     identically; the route imports it from here now. */
+  getClientIp: () => '203.0.113.7',
 }));
 
 vi.mock('@supabase/supabase-js', () => ({
