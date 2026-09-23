@@ -41,7 +41,7 @@ export default async function AuditResultRoute({ params }: PageProps) {
     .eq('id', auditId)
     .maybeSingle();
 
-  console.error("QUERY_RESULT:", JSON.stringify({ requestRaw, auditId })); if (!requestRaw) {
+  if (!requestRaw) {
     return (
       <div style={{ textAlign: 'center', padding: '6rem 1rem' }}>
         <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#374151' }}>
