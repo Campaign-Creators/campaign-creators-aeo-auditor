@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import * as cheerio from 'cheerio';
 import { inngest } from './client';
-import { runScorers, getGrade } from '@/lib/scoring';
+import { runScorers, getGrade, computeOverall, probeTotals } from '@/lib/scoring';
 import { probeWithPrompts, probeOpenAI, probePerplexity, probeGoogleAI } from '@/lib/auditor/ai-probe';
 import type { CrawlPage, CrawlRobotsData } from '@/types/audit';
 import { pickLastModified } from '@/lib/auditor/lastModified';
@@ -430,34 +430,17 @@ export const runAudit = inngest.createFunction(
         aiProbe: aiProbeResult,
       };
 
-      let aiTotalCited = 0;
-      let aiTotalPrompts = 0;
-      const aiEngines = [aiProbeResult.claude, aiProbeResult.openai, aiProbeResult.perplexity, aiProbeResult.google];
-      for (const engine of aiEngines) {
-        if (engine && engine.results && engine.results.length > 0) {
-          aiTotalCited += engine.citedCount;
-          aiTotalPrompts += engine.totalPrompts;
-        }
-      }
-      const aiCitationScore = aiTotalPrompts > 0 ? (aiTotalCited / aiTotalPrompts) * 100 : 0;
-      const hasAiData = aiTotalPrompts > 0;
+      // One implementation, shared with app/api/audit/crawl/route.ts. probeTotals() sums the
+      // four engines here and reads a single result object there, so neither call site has to
+      // know how the other probes.
+      const overall = computeOverall(scored, probeTotals(aiProbeResult));
+      const overallScore = overall.overall_score;
+      const overallGrade = overall.overall_grade;
 
-      let overallScore: number;
-      if (hasAiData) {
-        overallScore = Math.round(
-          (aiCitationScore * 0.40) +
-          (scored.answerability_score * 0.12) +
-          (scored.brevity_score * 0.12) +
-          (scored.trust_score * 0.12) +
-          (scored.structure_score * 0.12) +
-          (scored.freshness_score * 0.12)
-        );
-      } else {
-        overallScore = Math.round(
-          (scored.answerability_score + scored.brevity_score + scored.trust_score + scored.structure_score + scored.freshness_score) / 5
-        );
-      }
-      const overallGrade = getGrade(overallScore);
+      rawFindings.aiProbeStatus = overall.ai_probe_status;
+      rawFindings.aiCitationScore = overall.ai_citation_score;
+      rawFindings.aiPromptsTotal = overall.ai_prompts_total;
+      rawFindings.aiCitedCount = overall.ai_cited_count;
 
       await supabase.from('audit_results').upsert(
         {
