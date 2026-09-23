@@ -5,6 +5,7 @@ import * as cheerio from 'cheerio';
 import { runScorers, getGrade } from '@/lib/scoring';
 import { probeClaudeVisibility } from '@/lib/auditor/ai-probe';
 import type { CrawlPage, CrawlRobotsData } from '@/types/audit';
+import { pickLastModified } from '@/lib/auditor/lastModified';
 
 export const maxDuration = 60;
 export const runtime = 'nodejs';
@@ -154,6 +155,7 @@ function failedPage(
     canonicalUrl: null,
     robotsMeta: null,
     openGraphTags: {},
+    lastModified: null,
     fetchError: message,
   };
 }
@@ -199,6 +201,9 @@ async function crawlSinglePage(
   }
 
   const $ = cheerio.load(html);
+
+  // The server already told us when this page changed; the crawler used to throw it away.
+  const lastModified = pickLastModified(res.headers.get('last-modified'), $);
 
   const title = $('title').first().text().trim() || null;
   const metaDescription =
@@ -283,6 +288,7 @@ async function crawlSinglePage(
     canonicalUrl,
     robotsMeta,
     openGraphTags,
+    lastModified,
     fetchError: null,
   };
 }
@@ -474,7 +480,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       }
     }
 
-    const scored = runScorers({ crawledPages, robotsData, domainUrl });
+    const scored = runScorers({ crawledPages, robotsData, domainUrl, sitemapUrls });
 
     let aiProbe = null;
     try {

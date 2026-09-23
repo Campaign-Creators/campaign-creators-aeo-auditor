@@ -3,6 +3,7 @@ import type {
   CrawlRobotsData,
   RawFindings,
 } from '@/src/types/audit';
+import { newerDate } from '@/lib/auditor/lastModified';
 
 export function getGrade(score: number): string {
   if (score < 0 || score > 100) {
@@ -94,6 +95,11 @@ export interface RunScorersInput {
   crawledPages: CrawlPage[];
   robotsData: CrawlRobotsData;
   domainUrl: string;
+  /**
+   * URLs discovered in the site's sitemap. Optional so older callers still compile;
+   * omitting it means "no sitemap was read", which scores the same as not having one.
+   */
+  sitemapUrls?: string[];
 }
 
 export interface RunScorersResult {
@@ -112,6 +118,30 @@ export interface RunScorersResult {
   raw_findings: RawFindings;
 }
 
+function bareHost(url: string): string | null {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when the site's sitemap actually lists the audited domain.
+ *
+ * Deliberately stricter than "a sitemap file exists": a sitemap that 404s, is empty, or
+ * points somewhere else is not a discoverability signal, and the recommendation the report
+ * prints ("Submit an XML sitemap") should stop appearing only when there is one that works.
+ */
+export function sitemapListsAuditedDomain(
+  sitemapUrls: string[],
+  domainUrl: string,
+): boolean {
+  const audited = bareHost(domainUrl);
+  if (!audited) return false;
+  return sitemapUrls.some((entry) => bareHost(entry) === audited);
+}
+
 function deriveFindingsFromCrawl(input: RunScorersInput): RawFindings {
   const pages = input.crawledPages;
   const primary = pages.find((p) => p.fetchError === null) ?? pages[0] ?? null;
@@ -121,6 +151,20 @@ function deriveFindingsFromCrawl(input: RunScorersInput): RawFindings {
     !input.robotsData.claudeBotDisallowed &&
     !input.robotsData.fullDisallowAll;
 
+  // Both of the following were hardcoded — `sitemapListed: false` and `lastModified: null` —
+  // which made 30 of scoreAiCrawler's 100 points unreachable and pinned every freshness score
+  // at 0. See docs/audit/01-crawler.md F1/F2 and docs/audit/02-grading.md G7.
+  const sitemapListed = sitemapListsAuditedDomain(
+    input.sitemapUrls ?? [],
+    input.domainUrl,
+  );
+
+  // The freshest date any crawled page publishes, preferring the page the report is about.
+  const lastModified = pages.reduce<string | null>(
+    (acc, page) => newerDate(acc, page.lastModified ?? null),
+    primary?.lastModified ?? null,
+  );
+
   if (!primary) {
     return {
       url: input.domainUrl,
@@ -129,9 +173,9 @@ function deriveFindingsFromCrawl(input: RunScorersInput): RawFindings {
       internalLinks: [],
       externalLinks: [],
       wordCount: 0,
-      lastModified: null,
+      lastModified,
       robotsTxtAllowsAI,
-      sitemapListed: false,
+      sitemapListed,
       canonicalUrl: null,
       openGraphPresent: false,
       structuredDataTypes: [],
@@ -158,9 +202,9 @@ function deriveFindingsFromCrawl(input: RunScorersInput): RawFindings {
     internalLinks: Array.from(internal),
     externalLinks: Array.from(external),
     wordCount: words,
-    lastModified: null,
+    lastModified,
     robotsTxtAllowsAI,
-    sitemapListed: false,
+    sitemapListed,
     canonicalUrl: primary.canonicalUrl,
     openGraphPresent: openGraph,
     structuredDataTypes: Array.from(types),

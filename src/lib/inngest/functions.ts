@@ -5,6 +5,7 @@ import { inngest } from './client';
 import { runScorers, getGrade } from '@/lib/scoring';
 import { probeWithPrompts, probeOpenAI, probePerplexity, probeGoogleAI } from '@/lib/auditor/ai-probe';
 import type { CrawlPage, CrawlRobotsData } from '@/types/audit';
+import { pickLastModified } from '@/lib/auditor/lastModified';
 
 const MAX_PAGES = 200;
 const MAX_H2 = 10;
@@ -135,6 +136,7 @@ function failedPage(url: string, message: string, statusCode = 0): CrawlPage {
     canonicalUrl: null,
     robotsMeta: null,
     openGraphTags: {},
+    lastModified: null,
     fetchError: message,
   };
 }
@@ -175,6 +177,9 @@ async function crawlSinglePage(url: string, originHost: string): Promise<CrawlPa
   }
 
   const $ = cheerio.load(html);
+
+  // The server already told us when this page changed; the crawler used to throw it away.
+  const lastModified = pickLastModified(res.headers.get('last-modified'), $);
 
   const title = $('title').first().text().trim() || null;
   const metaDescription = $('meta[name="description"]').attr('content')?.trim() || null;
@@ -250,6 +255,7 @@ async function crawlSinglePage(url: string, originHost: string): Promise<CrawlPa
     canonicalUrl,
     robotsMeta,
     openGraphTags,
+    lastModified,
     fetchError: null,
   };
 }
@@ -389,7 +395,7 @@ export const runAudit = inngest.createFunction(
         }
       }
 
-      return { crawledPages, robotsData };
+      return { crawledPages, robotsData, sitemapUrls };
     });
 
     const aiProbeResult = await step.run('ai-probe', async () => {
@@ -414,8 +420,8 @@ export const runAudit = inngest.createFunction(
     });
 
     await step.run('store-results', async () => {
-      const { crawledPages, robotsData } = crawlResult;
-      const scored = runScorers({ crawledPages, robotsData, domainUrl });
+      const { crawledPages, robotsData, sitemapUrls } = crawlResult;
+      const scored = runScorers({ crawledPages, robotsData, domainUrl, sitemapUrls });
 
       const rawFindings = {
         ...scored.raw_findings,
