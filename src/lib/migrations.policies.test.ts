@@ -52,9 +52,17 @@ function replayMigrations() {
 
       const alter = stmt.match(ALTER_POLICY);
       if (alter) {
-        const existing = policies.get(`${ident(alter[2])}.${ident(alter[1])}`);
+        const key = `${ident(alter[2])}.${ident(alter[1])}`;
+        const existing = policies.get(key);
+        const rename = alter[3].match(re(`^ RENAME TO ${IDENT}$`));
         const to = alter[3].match(POLICY_TO);
-        if (existing && to) existing.roles = roleList(to[1]);
+        if (existing && rename) {
+          policies.delete(key);
+          existing.name = ident(rename[1]);
+          policies.set(`${existing.table}.${existing.name}`, existing);
+        } else if (existing && to) {
+          existing.roles = roleList(to[1]);
+        }
         continue;
       }
 
