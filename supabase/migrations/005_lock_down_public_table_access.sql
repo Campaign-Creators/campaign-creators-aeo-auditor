@@ -8,8 +8,8 @@
 --   * authenticated_only_leads: any signed-up user could read/write every lead
 --   * anon_select_audit_requests: anyone could read every audited URL, IP, UTM
 --   * anon/authenticated SELECT on audit_results: every report, no unlock needed
--- With RLS on and no policy for a role, that role sees no rows. The REVOKEs
--- are defence in depth in case RLS is ever disabled on one of these tables.
+-- The REVOKEs are the main control: without table privileges a role cannot
+-- read the table at all. Dropping the policies and keeping RLS on is the backstop.
 -- service_role keeps its access (service_role_insert_leads from 002, and its
 -- BYPASSRLS attribute).
 --
