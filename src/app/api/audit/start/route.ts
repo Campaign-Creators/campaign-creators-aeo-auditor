@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { isBlockedHost } from '@/lib/safeFetch';
 import { inngest } from '@/lib/inngest/client';
 
 export const runtime = 'nodejs';
@@ -40,52 +41,6 @@ const startSchema = z.object({
   utm_content: z.string().optional(),
   utm_term: z.string().optional(),
 });
-
-const IPV4_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
-
-function isPrivateOrIP(hostname: string): boolean {
-  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-
-  if (h === 'localhost' || h === '::1' || h === '0.0.0.0') {
-    return true;
-  }
-
-  if (h.endsWith('.local') || h.endsWith('.internal')) {
-    return true;
-  }
-
-  // Block all IPv6 (including bracketed literals)
-  if (hostname.startsWith('[') || h.includes(':')) {
-    return true;
-  }
-
-  // Block IPv4 literals: loopback and RFC1918 private ranges
-  if (IPV4_RE.test(h)) {
-    const parts = h.split('.').map((p) => Number.parseInt(p, 10));
-    if (parts.some((p) => Number.isNaN(p) || p < 0 || p > 255)) {
-      return true;
-    }
-    const [a, b] = parts;
-    if (a === 127) return true;
-    if (a === 10) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    // Catch-all: refuse raw IPv4 literals — public IPs should be reached via hostname.
-    return true;
-  }
-
-  // Reject purely numeric octet-style hostnames
-  if (/^\d+(\.\d+)*$/.test(h)) {
-    return true;
-  }
-
-  // Reject hostnames without a TLD (no dots, e.g. "intranet")
-  if (!h.includes('.')) {
-    return true;
-  }
-
-  return false;
-}
 
 function normalizeUrl(input: string): string {
   const u = new URL(input);
@@ -131,7 +86,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       return NextResponse.json({ error: 'Invalid URL' }, { status: 400 });
     }
 
-    if (isPrivateOrIP(hostname)) {
+    if (isBlockedHost(hostname)) {
       return NextResponse.json(
         { error: 'Invalid URL: private/local addresses are not permitted' },
         { status: 400 },

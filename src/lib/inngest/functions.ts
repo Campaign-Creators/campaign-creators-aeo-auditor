@@ -6,6 +6,7 @@ import { runScorers, getGrade, computeOverall, probeTotals } from '@/lib/scoring
 import { probeWithPrompts, probeOpenAI, probePerplexity, probeGoogleAI } from '@/lib/auditor/ai-probe';
 import type { CrawlPage, CrawlRobotsData } from '@/types/audit';
 import { pickLastModified } from '@/lib/auditor/lastModified';
+import { safeFetch, isFetchableUrl, BlockedUrlError } from '@/lib/safeFetch';
 
 const MAX_PAGES = 200;
 const MAX_H2 = 10;
@@ -113,14 +114,10 @@ function parseSitemapXml(xml: string, limit = MAX_SITEMAP_URLS): string[] {
   return out;
 }
 
-async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { signal: controller.signal, redirect: 'follow' });
-  } finally {
-    clearTimeout(timer);
-  }
+/* Every crawler fetch goes through safeFetch: the host guard runs before each request
+   and each redirect hop. See lib/safeFetch.ts. */
+function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+  return safeFetch(url, { timeoutMs });
 }
 
 function failedPage(url: string, message: string, statusCode = 0): CrawlPage {
@@ -165,6 +162,8 @@ async function crawlSinglePage(url: string, originHost: string): Promise<CrawlPa
   try {
     res = await fetchWithTimeout(url, PAGE_TIMEOUT_MS);
   } catch (err) {
+    // A redirect to a refused host is skipped like a non-HTML page, not scored as a failure.
+    if (err instanceof BlockedUrlError) return null;
     const msg = err instanceof Error ? err.message : String(err);
     return failedPage(url, msg, 0);
   }
@@ -407,6 +406,7 @@ export const runAudit = inngest.createFunction(
       const visited = new Set<string>();
       const candidates: string[] = [];
       const pushCandidate = (u: string): void => {
+        if (!isFetchableUrl(u)) return;
         if (!visited.has(u)) {
           visited.add(u);
           candidates.push(u);

@@ -5,7 +5,8 @@ import {
   probeOpenAI,
   probePerplexity,
   probeGoogleAI,
-} from '@/src/lib/auditor/ai-probe';
+} from '@/lib/auditor/ai-probe';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,6 +19,12 @@ function getSupabase(): SupabaseClient {
     { auth: { autoRefreshToken: false, persistSession: false } },
   );
 }
+
+/* Each run calls four paid AI engines, so runs are capped server-side on two budgets in
+   the shared hourly limiter: per visitor IP, and per audit. Both reserve before counting,
+   so simultaneous requests cannot all pass. Changing these is a cost decision. */
+const CUSTOM_PROMPTS_PER_IP = 3;
+const CUSTOM_PROMPTS_PER_AUDIT = 1;
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -80,9 +87,45 @@ export async function POST(
 
   const raw = (resultData.raw_findings ?? {}) as Record<string, unknown>;
 
-  // Rate-limit: return existing results if already run
+  // Already run: return the stored results without spending again.
   if (raw.customProbe) {
     return NextResponse.json({ customProbe: raw.customProbe });
+  }
+
+  // Custom prompts are part of the unlocked report: an unlock writes a lead for this audit.
+  const { count: leadCount, error: leadError } = await supabase
+    .from('leads')
+    .select('id', { count: 'exact', head: true })
+    .eq('audit_request_id', auditId);
+
+  if (leadError) {
+    console.error('[custom-prompts] unlock lookup failed:', JSON.stringify(leadError));
+    return NextResponse.json({ error: 'Try again later' }, { status: 503 });
+  }
+  if (!leadCount) {
+    return NextResponse.json({ error: 'Unlock the report first' }, { status: 403 });
+  }
+
+  try {
+    const reserve = { reserveFirst: true };
+    const perIp = await checkRateLimit(
+      `custom:${getClientIp(request)}`,
+      CUSTOM_PROMPTS_PER_IP,
+      reserve,
+    );
+    const perAudit = perIp.limited
+      ? perIp
+      : await checkRateLimit(`custom-audit:${auditId}`, CUSTOM_PROMPTS_PER_AUDIT, reserve);
+    if (perIp.limited || perAudit.limited) {
+      return NextResponse.json(
+        { error: 'Too many custom prompt runs. Try again later.', retryAfterSeconds: 3600 },
+        { status: 429, headers: { 'Retry-After': '3600' } },
+      );
+    }
+  } catch (err) {
+    // Fail closed: an unchecked run spends real money.
+    console.error('[custom-prompts] rate limit check failed; refusing the request:', err);
+    return NextResponse.json({ error: 'Try again later' }, { status: 503 });
   }
 
   const domain = requestData.url as string;
