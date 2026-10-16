@@ -189,6 +189,26 @@ describe.each([
     30_000,
   );
 
+  it(
+    'finishes when a page body never ends',
+    async () => {
+      const site = siteResponder('https://example.com/sitemap.xml');
+      fetchMock = vi.fn(async (input: string | URL) => {
+        if (new URL(String(input)).pathname !== '/') return site(input);
+        const endless = new ReadableStream<Uint8Array>({
+          pull: (c) => c.enqueue(new TextEncoder().encode('<p>' + 'x'.repeat(4096) + '</p>')),
+        });
+        return new Response(endless, { headers: { 'content-type': 'text/html' } });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await crawl('https://example.com');
+
+      expect(fetchMock).toHaveBeenCalled();
+    },
+    30_000,
+  );
+
   it('never fetches a private start URL', async () => {
     fetchMock = vi.fn(siteResponder('https://example.com/sitemap.xml'));
     vi.stubGlobal('fetch', fetchMock);
