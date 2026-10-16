@@ -26,6 +26,16 @@ function getSupabase(): SupabaseClient {
 const CUSTOM_PROMPTS_PER_IP = 3;
 const CUSTOM_PROMPTS_PER_AUDIT = 1;
 
+/* A ceiling on runs from all visitors together in the hour, so many IPs cannot add up to an
+   unbounded bill. Set CUSTOM_PROMPTS_GLOBAL_MAX to change it; anything not a positive
+   integer falls back to the default. */
+const DEFAULT_CUSTOM_PROMPTS_GLOBAL_MAX = 30;
+
+function globalMax(): number {
+  const n = Number.parseInt(process.env.CUSTOM_PROMPTS_GLOBAL_MAX ?? '', 10);
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_CUSTOM_PROMPTS_GLOBAL_MAX;
+}
+
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -116,7 +126,10 @@ export async function POST(
     const perAudit = perIp.limited
       ? perIp
       : await checkRateLimit(`custom-audit:${auditId}`, CUSTOM_PROMPTS_PER_AUDIT, reserve);
-    if (perIp.limited || perAudit.limited) {
+    const allVisitors = perIp.limited || perAudit.limited
+      ? perAudit
+      : await checkRateLimit('custom-global', globalMax(), reserve);
+    if (perIp.limited || perAudit.limited || allVisitors.limited) {
       return NextResponse.json(
         { error: 'Too many custom prompt runs. Try again later.', retryAfterSeconds: 3600 },
         { status: 429, headers: { 'Retry-After': '3600' } },

@@ -149,6 +149,7 @@ beforeEach(() => {
   }
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://example.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key';
+  delete process.env.CUSTOM_PROMPTS_GLOBAL_MAX;
 });
 
 describe('POST /api/audit/[auditId]/custom-prompts', () => {
@@ -229,6 +230,35 @@ describe('POST /api/audit/[auditId]/custom-prompts', () => {
     expect(again.status).toBe(200);
     expect(engineCalls()).toBe(4);
     expect(db.rateLimits.length).toBe(budgetUsed);
+  });
+
+  it('caps runs across all visitors together, at the configured hourly maximum', async () => {
+    process.env.CUSTOM_PROMPTS_GLOBAL_MAX = '2';
+    const ids = [1, 2, 3].map((n) => auditId(n));
+    ids.forEach((id) => addAudit(id));
+
+    const statuses: number[] = [];
+    for (const [i, id] of ids.entries()) statuses.push((await call(id, `198.51.100.${i + 1}`)).status);
+
+    expect(statuses).toEqual([200, 200, 429]);
+    expect(engineCalls()).toBe(8);
+  });
+
+  it('uses a safe default global cap when none is configured', async () => {
+    const ids = Array.from({ length: 31 }, (_, i) => auditId(i + 1));
+    ids.forEach((id) => addAudit(id));
+
+    const statuses: number[] = [];
+    for (const [i, id] of ids.entries()) statuses.push((await call(id, `198.51.100.${i + 1}`)).status);
+
+    expect(statuses.slice(0, 30).every((s) => s === 200)).toBe(true);
+    expect(statuses[30]).toBe(429);
+  });
+
+  it.each(['0', '-5', 'abc', ''])('ignores an unusable global cap setting (%j)', async (value) => {
+    process.env.CUSTOM_PROMPTS_GLOBAL_MAX = value;
+    addAudit(AUDIT_ID);
+    expect((await call(AUDIT_ID)).status).toBe(200);
   });
 
   it('fails closed when the limiter cannot be checked', async () => {
