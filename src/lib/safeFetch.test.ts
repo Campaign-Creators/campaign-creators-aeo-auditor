@@ -9,6 +9,8 @@ const PRIVATE_URLS = [
   'http://169.254.169.254/',
   'http://localhost/',
   'http://localhost./',
+  'http://localhost../',
+  'http://127.0.0.1../',
   'http://app.localhost/',
   'http://[::1]/',
   'http://[fd00::1]/',

@@ -36,9 +36,12 @@ export function getClientIp(request: { headers: Headers }): string {
 export async function checkRateLimit(
   key: string,
   limit = Number.parseInt(process.env.RATE_LIMIT_MAX ?? '5', 10) || 5,
+  { reserveFirst = false }: { reserveFirst?: boolean } = {},
 ): Promise<{ limited: boolean }> {
   const supabase = getSupabase();
   const since = new Date(Date.now() - WINDOW_SECONDS * 1000).toISOString();
+
+  if (reserveFirst) return reserveThenCount(supabase, key, limit, since);
 
   const { count, error: countError } = await supabase
     .from('audit_rate_limits')
@@ -65,4 +68,38 @@ export async function checkRateLimit(
   }
 
   return { limited: false };
+}
+
+/**
+ * Record the attempt first, then count it. Requests that arrive together cannot all see a
+ * count taken before any of them was recorded, so the limit holds under a burst; the price
+ * is that refused attempts use budget too. For routes where an extra pass costs money.
+ */
+async function reserveThenCount(
+  supabase: SupabaseClient,
+  key: string,
+  limit: number,
+  since: string,
+): Promise<{ limited: boolean }> {
+  const { error: insertError } = await supabase
+    .from('audit_rate_limits')
+    .insert({ ip: key, created_at: new Date().toISOString() });
+
+  if (insertError) {
+    console.error('RATE_INSERT_ERROR:', JSON.stringify(insertError));
+    throw insertError;
+  }
+
+  const { count, error: countError } = await supabase
+    .from('audit_rate_limits')
+    .select('*', { count: 'exact', head: true })
+    .eq('ip', key)
+    .gte('created_at', since);
+
+  if (countError) {
+    console.error('RATE_LIMIT_ERROR:', JSON.stringify(countError));
+    throw countError;
+  }
+
+  return { limited: (count ?? 0) > limit };
 }

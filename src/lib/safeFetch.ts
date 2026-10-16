@@ -24,9 +24,10 @@ export class BlockedUrlError extends Error {
  * literals are refused outright rather than range-checked.
  */
 export function isBlockedHost(hostname: string): boolean {
-  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
 
-  if (!h) return true;
+  // Empty names and empty labels are never a public site.
+  if (!h || h.includes('..')) return true;
 
   if (h === 'localhost' || h.endsWith('.localhost') || h === '::1' || h === '0.0.0.0') {
     return true;

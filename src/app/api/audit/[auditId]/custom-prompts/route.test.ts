@@ -12,6 +12,7 @@ const { db, probes } = vi.hoisted(() => ({
     rateLimits: [] as Array<{ ip: string; created_at: string }>,
     persistResults: true,
     failRateLimit: false,
+    failLeads: false,
   },
   probes: {
     probeWithPrompts: vi.fn(),
@@ -49,6 +50,9 @@ function query(table: string) {
 
   const run = async () => {
     if (table === 'audit_rate_limits' && db.failRateLimit) {
+      return { data: null, count: null, error: { message: 'db down' } };
+    }
+    if (table === 'leads' && db.failLeads) {
       return { data: null, count: null, error: { message: 'db down' } };
     }
     if (op === 'insert') {
@@ -138,6 +142,7 @@ beforeEach(() => {
   db.rateLimits.length = 0;
   db.persistResults = true;
   db.failRateLimit = false;
+  db.failLeads = false;
   for (const fn of Object.values(probes)) {
     fn.mockReset();
     fn.mockResolvedValue({ citedCount: 0, totalPrompts: 1 });
@@ -172,6 +177,29 @@ describe('POST /api/audit/[auditId]/custom-prompts', () => {
     expect(second.status).toBe(429);
     expect(second.headers.get('retry-after')).toBeTruthy();
     expect(engineCalls()).toBe(4);
+  });
+
+  it('pays for at most one run when requests for one audit arrive together', async () => {
+    addAudit(AUDIT_ID);
+    db.persistResults = false;
+
+    const statuses = (
+      await Promise.all(
+        Array.from({ length: 5 }, (_, i) => call(AUDIT_ID, `198.51.100.${i + 1}`)),
+      )
+    ).map((r) => r.status);
+
+    expect(engineCalls()).toBeLessThanOrEqual(4);
+    expect(statuses.filter((s) => s === 200).length).toBeLessThanOrEqual(1);
+    expect(statuses.every((s) => s === 200 || s === 429)).toBe(true);
+  });
+
+  it('answers 503, not "unlock first", when the unlock lookup fails', async () => {
+    addAudit(AUDIT_ID);
+    db.failLeads = true;
+    const res = await call(AUDIT_ID);
+    expect(res.status).toBe(503);
+    expect(engineCalls()).toBe(0);
   });
 
   it('refuses request N+1 from the same IP across different audits (429)', async () => {

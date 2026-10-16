@@ -21,8 +21,8 @@ function getSupabase(): SupabaseClient {
 }
 
 /* Each run calls four paid AI engines, so runs are capped server-side on two budgets in
-   the shared hourly limiter: per visitor IP, and per audit (which also stops parallel
-   requests racing past the stored-results check below). Changing these is a cost decision. */
+   the shared hourly limiter: per visitor IP, and per audit. Both reserve before counting,
+   so simultaneous requests cannot all pass. Changing these is a cost decision. */
 const CUSTOM_PROMPTS_PER_IP = 3;
 const CUSTOM_PROMPTS_PER_AUDIT = 1;
 
@@ -98,15 +98,24 @@ export async function POST(
     .select('id', { count: 'exact', head: true })
     .eq('audit_request_id', auditId);
 
-  if (leadError || !leadCount) {
+  if (leadError) {
+    console.error('[custom-prompts] unlock lookup failed:', JSON.stringify(leadError));
+    return NextResponse.json({ error: 'Try again later' }, { status: 503 });
+  }
+  if (!leadCount) {
     return NextResponse.json({ error: 'Unlock the report first' }, { status: 403 });
   }
 
   try {
-    const perIp = await checkRateLimit(`custom:${getClientIp(request)}`, CUSTOM_PROMPTS_PER_IP);
+    const reserve = { reserveFirst: true };
+    const perIp = await checkRateLimit(
+      `custom:${getClientIp(request)}`,
+      CUSTOM_PROMPTS_PER_IP,
+      reserve,
+    );
     const perAudit = perIp.limited
       ? perIp
-      : await checkRateLimit(`custom-audit:${auditId}`, CUSTOM_PROMPTS_PER_AUDIT);
+      : await checkRateLimit(`custom-audit:${auditId}`, CUSTOM_PROMPTS_PER_AUDIT, reserve);
     if (perIp.limited || perAudit.limited) {
       return NextResponse.json(
         { error: 'Too many custom prompt runs. Try again later.', retryAfterSeconds: 3600 },
