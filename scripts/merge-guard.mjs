@@ -40,6 +40,10 @@ if (!['pre', 'post'].includes(MODE) || !/^\d+$/.test(PR || '')) {
 const sh = (cmd, opts = {}) =>
   (execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }) ?? '').trim();
 const shOk = (cmd, opts = {}) => { try { sh(cmd, opts); return true; } catch { return false; } };
+// For arguments that come from GitHub (file paths): no shell, so nothing in a name is interpreted.
+const gitOk = (args) => {
+  try { execFileSync('git', args, { stdio: 'ignore' }); return true; } catch { return false; }
+};
 
 const REPO = 'Campaign-Creators/campaign-creators-aeo-auditor';
 
@@ -63,6 +67,12 @@ const BUILD_ENV = {
   RESEND_API_KEY: 'merge-guard-placeholder',
   NEXT_TELEMETRY_DISABLED: '1',
 };
+
+// The caller's shell may hold real credentials under names BUILD_ENV doesn't list (SDKs read
+// extra variables such as auth tokens and base URLs). Drop anything that looks like one.
+const SECRET_LIKE = /KEY|TOKEN|SECRET|PASSWORD|AUTH|SUPABASE|ANTHROPIC|OPENAI|PERPLEXITY|SERPAPI|INNGEST|HUBSPOT|RESEND|VERCEL|_URL$/i;
+const callerEnvWithoutSecrets = () =>
+  Object.fromEntries(Object.entries(process.env).filter(([k]) => !SECRET_LIKE.test(k)));
 
 const check = (name, ok, detail) => {
   const mark = ok === null ? '····' : ok ? ' OK ' : 'FAIL';
@@ -131,7 +141,7 @@ function pre() {
   const step = (name, cmd, passRe, env) => {
     let out = '';
     let good = true;
-    try { out = sh(cmd, { cwd: dir, timeout: 1200000, ...(env && { env: { ...process.env, ...env } }) }); }
+    try { out = sh(cmd, { cwd: dir, timeout: 1200000, ...(env && { env: { ...callerEnvWithoutSecrets(), ...env } }) }); }
     catch (e) { good = false; out = (e.stdout || '') + (e.stderr || ''); }
     const m = passRe && out.match(passRe);
     ok = check(name, good, good ? (m ? m[0] : 'ok') : 'FAILED') && ok;
@@ -145,7 +155,7 @@ function pre() {
     // worktree ("Symlink [project]/node_modules is invalid"), so reuse made the build fail.
     step('npm ci', 'npm ci --no-audit --no-fund');
     step('typecheck ON THE MERGE', 'npx tsc --noEmit');
-    // One worker: several agents share this machine and a parallel run can exhaust RAM.
+    // One worker keeps memory use low.
     step('vitest run ON THE MERGE', 'npx vitest run --maxWorkers=1', /Tests +\d+ passed/, BUILD_ENV);
     // git grep exits 1 when nothing matches; any other exit is an error, not a pass.
     let markers = '';
@@ -190,7 +200,7 @@ function pre() {
   }
 
   verdict(ok, ok
-    ? `RJ or Marcus merges:  gh pr merge ${PR} --repo ${REPO} --merge --match-head-commit ${head}   then:   node scripts/merge-guard.mjs post ${PR}`
+    ? `Merge with:  gh pr merge ${PR} --repo ${REPO} --merge --match-head-commit ${head}   then:   node scripts/merge-guard.mjs post ${PR}`
     : 'the merge result is broken even though the branch may be green');
 }
 
@@ -208,7 +218,7 @@ function post() {
   const unmerged = sh(`git cherry origin/main ${head}`).split('\n').filter(l => l.startsWith('+')).length;
   ok = check('base branch is main', pr.baseRefName === 'main', pr.baseRefName) && ok;
   const files = (pr.files || []).map(f => f.path).filter(f => !f.endsWith('package-lock.json'));
-  const differing = files.filter(f => !shOk(`git diff --quiet origin/main ${head} -- "${f}"`));
+  const differing = files.filter(f => !gitOk(['diff', '--quiet', 'origin/main', head, '--', f]));
   check('merge commit on main', ancestor, sha ? sha.slice(0, 8) : 'none');
   check('patches in main (cherry)', unmerged === 0, `${unmerged} not in main`);
   const filesOk = files.length > 0 && differing.length === 0; // no files read = no evidence
