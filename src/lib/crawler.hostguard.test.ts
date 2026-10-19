@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 /* Both crawlers (the Inngest job and the fallback crawl route) must check every URL they
    fetch against the private-host guard: the start URL, robots sitemap hints, sitemap
@@ -122,6 +122,12 @@ function expectOnlyPublicFetches(fetchMock: ReturnType<typeof vi.fn>): void {
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
+afterEach(() => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
 beforeEach(() => {
   vi.resetModules();
   captured.handler = null;
@@ -200,8 +206,9 @@ describe.each([
         // timeout this spec hangs and fails cleanly, instead of buffering until memory runs out.
         let sent = false;
         const stalled = new ReadableStream<Uint8Array>({
+          // Bounded: one chunk ever, and never after cancel.
           pull: (c) => {
-            if (sent) return new Promise(() => {});
+            if (sent || cancelled) return new Promise(() => {});
             sent = true;
             c.enqueue(new TextEncoder().encode('<html><title>t</title>'));
           },
