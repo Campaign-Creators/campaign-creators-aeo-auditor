@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { readBody } from './safeFetch';
+import { describe, it, expect, vi } from 'vitest';
+import { readBody, timeLeft } from './safeFetch';
 
 function streamOf(chunks: Uint8Array[], { endless = false, stall = false } = {}) {
   let i = 0;
@@ -39,7 +39,32 @@ describe('readBody', () => {
     expect(wasCancelled()).toBe(true);
   });
 
+  it('limits the whole read, not each chunk: a slow drip still times out', async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull: (c) => new Promise<void>((r) => setTimeout(() => { c.enqueue(new Uint8Array([97])); r(); }, 10)),
+      cancel: () => { cancelled = true; },
+    });
+    await expect(readBody(new Response(body), { timeoutMs: 80 })).rejects.toThrow(/timed out/i);
+    expect(cancelled).toBe(true);
+  });
+
   it('returns an empty string for a response with no body', async () => {
     expect(await readBody(new Response(null), { timeoutMs: 50 })).toBe('');
+  });
+});
+
+describe('timeLeft', () => {
+  it('gives the body only what the headers left of the budget, never zero', () => {
+    vi.useFakeTimers();
+    try {
+      const started = Date.now();
+      vi.advanceTimersByTime(3000);
+      expect(timeLeft(started, 10_000)).toBe(7000);
+      vi.advanceTimersByTime(20_000);
+      expect(timeLeft(started, 10_000)).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

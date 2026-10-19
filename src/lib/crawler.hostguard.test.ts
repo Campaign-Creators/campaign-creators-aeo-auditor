@@ -192,6 +192,7 @@ describe.each([
   it(
     'finishes when a page body stops sending',
     async () => {
+      let cancelled = false;
       const site = siteResponder('https://example.com/sitemap.xml');
       fetchMock = vi.fn(async (input: string | URL) => {
         if (new URL(String(input)).pathname !== '/') return site(input);
@@ -204,6 +205,9 @@ describe.each([
             sent = true;
             c.enqueue(new TextEncoder().encode('<html><title>t</title>'));
           },
+          cancel: () => {
+            cancelled = true;
+          },
         });
         return new Response(stalled, { headers: { 'content-type': 'text/html' } });
       });
@@ -211,7 +215,8 @@ describe.each([
 
       await crawl('https://example.com');
 
-      expect(fetchMock).toHaveBeenCalled();
+      // The read timed out and let go of the connection, rather than the stream ending.
+      expect(cancelled).toBe(true);
     },
     30_000,
   );
