@@ -214,9 +214,12 @@ function prChangesOnMain(head, mergeSha, target) {
   const before = mergeSha && gitOk(['cat-file', '-e', `${mergeSha}^1`]) ? `${mergeSha}^1` : 'origin/main';
   // No shell: cmd.exe on Windows treats the `^` in `<sha>^1` as an escape character.
   const base = execFileSync('git', ['merge-base', head, before], { encoding: 'utf8' }).trim();
-  const patch = execFileSync('git', ['diff', '--binary', `${base}..${head}`, '--', '.', ':(exclude)package-lock.json'],
-    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
-  if (!patch.trim()) return { ok: false, detail: 'no changes to compare' }; // no evidence
+  // Plumbing diff, kept as raw bytes: no textconv, external diff, colour or prefix settings from the
+  // caller's git config, and no re-encoding of non-UTF-8 files, can change the patch.
+  const patch = execFileSync('git', ['diff-tree', '-p', '--binary', '--no-color', '--no-ext-diff', '--no-textconv',
+    '--src-prefix=a/', '--dst-prefix=b/', base, head, '--', '.', ':(exclude)package-lock.json'],
+  { maxBuffer: 256 * 1024 * 1024 });
+  if (patch.length === 0) return { ok: false, unverifiable: true, detail: 'no changes to compare' }; // no evidence
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'merge-guard-post-'));
   try {
     const patchFile = path.join(tmp, 'pr.patch');
@@ -251,10 +254,13 @@ function post() {
   check('patches in main (cherry)', unmerged === 0, `${unmerged} not in main`);
   const hunks = prChangesOnMain(head, sha, ancestor ? sha : 'origin/main');
   ok = check('PR changes on main', hunks.ok, hunks.detail) && ok;
-  if (!hunks.ok) console.log('      (or a later commit on main changed those lines: inspect before re-opening)');
+  if (!hunks.ok && !hunks.unverifiable) console.log('      (or a later commit on main changed those lines: inspect before re-opening)');
   ok = check('LANDED BY CONTENT', ok, ok ? 'yes' : 'NO') && ok;
 
   if (!ok && pr.state !== 'MERGED') return verdict(false, `not merged yet (state ${pr.state})`);
+  // An empty diff (lockfile-only PR, or a merge commit we can't read) is no evidence either way:
+  // stop, but don't advise re-opening work that may well have landed.
+  if (hunks.unverifiable) return verdict(false, `cannot verify by content (${hunks.detail}); check main by hand before acting`);
   verdict(ok, ok ? 'landed' : `NOT on main. The branch still has the work:\n      gh pr create --head ${pr.headRefName} --base main`);
 }
 
