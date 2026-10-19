@@ -32,8 +32,9 @@ const CUSTOM_PROMPTS_PER_AUDIT = 1;
 const DEFAULT_CUSTOM_PROMPTS_GLOBAL_MAX = 30;
 
 function globalMax(): number {
-  const n = Number.parseInt(process.env.CUSTOM_PROMPTS_GLOBAL_MAX ?? '', 10);
-  return Number.isInteger(n) && n > 0 ? n : DEFAULT_CUSTOM_PROMPTS_GLOBAL_MAX;
+  const raw = (process.env.CUSTOM_PROMPTS_GLOBAL_MAX ?? '').trim();
+  const n = /^\d+$/.test(raw) ? Number(raw) : 0;
+  return n > 0 ? n : DEFAULT_CUSTOM_PROMPTS_GLOBAL_MAX;
 }
 
 const UUID_REGEX =
