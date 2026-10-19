@@ -184,3 +184,45 @@ export async function safeFetch(
     clearTimeout(timer);
   }
 }
+
+/** Largest body the crawler reads from one response; the parsers use far less. */
+export const MAX_BODY_BYTES = 2 * 1024 * 1024;
+
+/**
+ * `res.text()` with a size cap and a timeout. `safeFetch`'s timer stops once headers
+ * arrive, so without this a site could keep a body open, or send one without end, and
+ * hold the crawl until the platform kills it. Past the cap the rest is cancelled and the
+ * text read so far is returned.
+ */
+export async function readBody(
+  res: Response,
+  { timeoutMs, maxBytes = MAX_BODY_BYTES }: { timeoutMs: number; maxBytes?: number },
+): Promise<string> {
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  let bytes = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Body read timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+  try {
+    for (;;) {
+      const { done, value } = await Promise.race([reader.read(), timeout]);
+      if (done) return text + decoder.decode();
+      const room = maxBytes - bytes;
+      if (value.byteLength >= room) {
+        await reader.cancel().catch(() => {});
+        return text + decoder.decode(value.subarray(0, room));
+      }
+      bytes += value.byteLength;
+      text += decoder.decode(value, { stream: true });
+    }
+  } catch (err) {
+    await reader.cancel().catch(() => {});
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}

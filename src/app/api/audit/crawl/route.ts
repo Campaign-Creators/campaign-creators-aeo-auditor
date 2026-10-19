@@ -6,7 +6,7 @@ import { runScorers, getGrade, computeOverall, probeTotals } from '@/lib/scoring
 import { probeClaudeVisibility } from '@/lib/auditor/ai-probe';
 import type { CrawlPage, CrawlRobotsData } from '@/types/audit';
 import { pickLastModified } from '@/lib/auditor/lastModified';
-import { safeFetch, isFetchableUrl, BlockedUrlError } from '@/lib/safeFetch';
+import { safeFetch, isFetchableUrl, BlockedUrlError, readBody } from '@/lib/safeFetch';
 
 export const maxDuration = 60;
 export const runtime = 'nodejs';
@@ -190,7 +190,7 @@ async function crawlSinglePage(
 
   let html: string;
   try {
-    html = await res.text();
+    html = await readBody(res, { timeoutMs: PAGE_TIMEOUT_MS });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return failedPage(url, msg, res.status);
@@ -422,7 +422,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         ROBOTS_TIMEOUT_MS,
       );
       if (res.ok) {
-        robotsText = await res.text();
+        robotsText = await readBody(res, { timeoutMs: ROBOTS_TIMEOUT_MS });
         robotsData = parseRobots(robotsText);
       }
     } catch {
@@ -436,7 +436,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     try {
       const res = await fetchWithTimeout(sitemapTarget, SITEMAP_TIMEOUT_MS);
       if (res.ok) {
-        const xml = await res.text();
+        const xml = await readBody(res, { timeoutMs: SITEMAP_TIMEOUT_MS });
         sitemapUrls = parseSitemapXml(xml, MAX_SITEMAP_URLS);
       }
     } catch {
