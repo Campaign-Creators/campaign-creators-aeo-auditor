@@ -190,15 +190,22 @@ describe.each([
   );
 
   it(
-    'finishes when a page body never ends',
+    'finishes when a page body stops sending',
     async () => {
       const site = siteResponder('https://example.com/sitemap.xml');
       fetchMock = vi.fn(async (input: string | URL) => {
         if (new URL(String(input)).pathname !== '/') return site(input);
-        const endless = new ReadableStream<Uint8Array>({
-          pull: (c) => c.enqueue(new TextEncoder().encode('<p>' + 'x'.repeat(4096) + '</p>')),
+        // One chunk, then silence. A stall rather than an endless body: without the read
+        // timeout this spec hangs and fails cleanly, instead of buffering until memory runs out.
+        let sent = false;
+        const stalled = new ReadableStream<Uint8Array>({
+          pull: (c) => {
+            if (sent) return new Promise(() => {});
+            sent = true;
+            c.enqueue(new TextEncoder().encode('<html><title>t</title>'));
+          },
         });
-        return new Response(endless, { headers: { 'content-type': 'text/html' } });
+        return new Response(stalled, { headers: { 'content-type': 'text/html' } });
       });
       vi.stubGlobal('fetch', fetchMock);
 
