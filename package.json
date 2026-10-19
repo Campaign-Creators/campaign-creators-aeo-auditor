@@ -24,6 +24,7 @@
     "react-is": "^19.2.6",
     "recharts": "^3.8.1",
     "resend": "^6.12.4",
+    "undici": "7.26.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

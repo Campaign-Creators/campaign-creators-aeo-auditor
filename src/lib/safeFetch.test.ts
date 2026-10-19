@@ -1,5 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { isBlockedHost, isFetchableUrl, safeFetch, BlockedUrlError } from './safeFetch';
+
+const { dnsLookupMock } = vi.hoisted(() => ({ dnsLookupMock: vi.fn() }));
+vi.mock('node:dns', async (orig) => {
+  const real = await orig<typeof import('node:dns')>();
+  return { ...real, default: { ...real, lookup: dnsLookupMock }, lookup: dnsLookupMock };
+});
+
+import {
+  isBlockedHost,
+  isFetchableUrl,
+  isPrivateAddress,
+  guardedLookup,
+  safeFetch,
+  BlockedUrlError,
+} from './safeFetch';
 
 const PRIVATE_URLS = [
   'http://127.0.0.1/',
@@ -104,5 +118,120 @@ describe('safeFetch', () => {
       safeFetch('https://example.com/', { timeoutMs: 1000, maxRedirects: 3 }),
     ).rejects.toThrow(/redirect/i);
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+});
+
+/* Names are checked above; these specs cover what a public-looking name resolves to. The
+   resolver is mocked, so no real DNS query is made. */
+describe('isPrivateAddress', () => {
+  it.each([
+    '127.0.0.1', '10.4.5.6', '172.16.0.1', '192.168.0.10', '169.254.169.254', '100.64.0.1',
+    '0.0.0.0', '224.0.0.1', '255.255.255.255',
+    '::1', '::', 'fd00::1', 'fe80::1', 'ff02::1', '::ffff:10.0.0.1', '::ffff:7f00:1',
+    'fec0::1', '64:ff9b:1::1', '::a00:1',
+  ])('treats %s as private', (ip) => {
+    expect(isPrivateAddress(ip)).toBe(true);
+  });
+
+  it.each(['93.184.216.34', '8.8.8.8', '2606:4700:4700::1111', '::ffff:93.184.216.34'])(
+    'treats %s as public',
+    (ip) => {
+      expect(isPrivateAddress(ip)).toBe(false);
+    },
+  );
+
+  it('treats anything that is not an IP address as private', () => {
+    expect(isPrivateAddress('not-an-ip')).toBe(true);
+  });
+});
+
+type LookupImpl = (h: string, o: unknown, cb: (...a: unknown[]) => void) => void;
+const resolvesTo =
+  (addresses: Array<{ address: string; family: number }>): LookupImpl =>
+  (_h, _o, cb) =>
+    cb(null, addresses);
+
+describe('guardedLookup', () => {
+  const lookupWith = (addresses: Array<{ address: string; family: number }>) =>
+    new Promise<{ err: unknown; result: unknown }>((resolve) => {
+      dnsLookupMock.mockImplementation(resolvesTo(addresses));
+      guardedLookup('site.example', { all: true }, (err: unknown, result: unknown) =>
+        resolve({ err, result }),
+      );
+    });
+
+  beforeEach(() => {
+    dnsLookupMock.mockReset();
+  });
+
+  it('passes public addresses through', async () => {
+    const { err, result } = await lookupWith([{ address: '93.184.216.34', family: 4 }]);
+    expect(err).toBeNull();
+    expect(result).toEqual([{ address: '93.184.216.34', family: 4 }]);
+  });
+
+  it('refuses a name that resolves to a private address', async () => {
+    const { err } = await lookupWith([{ address: '10.0.0.7', family: 4 }]);
+    expect(err).toBeInstanceOf(BlockedUrlError);
+  });
+
+  it('refuses a name when any of its addresses is private', async () => {
+    const { err } = await lookupWith([
+      { address: '93.184.216.34', family: 4 },
+      { address: 'fd00::7', family: 6 },
+    ]);
+    expect(err).toBeInstanceOf(BlockedUrlError);
+  });
+
+  it('returns a single address when the caller did not ask for all', async () => {
+    dnsLookupMock.mockImplementation(resolvesTo([{ address: '93.184.216.34', family: 4 }]));
+    const got = await new Promise<unknown[]>((resolve) =>
+      guardedLookup('site.example', {}, (...args: unknown[]) => resolve(args)),
+    );
+    expect(got).toEqual([null, '93.184.216.34', 4]);
+  });
+});
+
+describe('safeFetch connects only to checked addresses', () => {
+  it('passes the guarded dispatcher on every hop', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(redirect('/next'))
+      .mockResolvedValueOnce(new Response('ok'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await safeFetch('https://example.com/', { timeoutMs: 1000 });
+
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init.dispatcher).toBeDefined();
+    }
+  });
+
+  it('refuses, over a real connection, a public-looking name that resolves to loopback', async () => {
+    vi.unstubAllGlobals();
+    const http = await import('node:http');
+    let hits = 0;
+    const server = http.createServer((_q, r) => {
+      hits++;
+      r.end('reached');
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const { port } = server.address() as { port: number };
+    dnsLookupMock.mockImplementation(resolvesTo([{ address: '127.0.0.1', family: 4 }]));
+    try {
+      const err = await safeFetch(`http://site.example:${port}/`, { timeoutMs: 3000 }).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      // The refusal must come from the guard, not from the name failing to resolve.
+      const chain: unknown[] = [];
+      for (let e = err; e; e = (e as { cause?: unknown }).cause) chain.push(e);
+      expect(chain.some((e) => e instanceof BlockedUrlError)).toBe(true);
+      // Callers skip refused hosts with a plain instanceof check, so it must not be wrapped.
+      expect(err).toBeInstanceOf(BlockedUrlError);
+      expect(hits).toBe(0);
+    } finally {
+      server.close();
+    }
   });
 });
