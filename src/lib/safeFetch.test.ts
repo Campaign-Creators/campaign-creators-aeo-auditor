@@ -128,6 +128,7 @@ describe('isPrivateAddress', () => {
     '127.0.0.1', '10.4.5.6', '172.16.0.1', '192.168.0.10', '169.254.169.254', '100.64.0.1',
     '0.0.0.0', '224.0.0.1', '255.255.255.255',
     '::1', '::', 'fd00::1', 'fe80::1', 'ff02::1', '::ffff:10.0.0.1', '::ffff:7f00:1',
+    'fec0::1', '64:ff9b:1::1', '::a00:1',
   ])('treats %s as private', (ip) => {
     expect(isPrivateAddress(ip)).toBe(true);
   });
@@ -226,6 +227,8 @@ describe('safeFetch connects only to checked addresses', () => {
       const chain: unknown[] = [];
       for (let e = err; e; e = (e as { cause?: unknown }).cause) chain.push(e);
       expect(chain.some((e) => e instanceof BlockedUrlError)).toBe(true);
+      // Callers skip refused hosts with a plain instanceof check, so it must not be wrapped.
+      expect(err).toBeInstanceOf(BlockedUrlError);
       expect(hits).toBe(0);
     } finally {
       server.close();

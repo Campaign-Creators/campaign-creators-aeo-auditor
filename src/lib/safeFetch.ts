@@ -76,7 +76,7 @@ const PRIVATE_RANGES = (() => {
     ['224.0.0.0', 4], ['240.0.0.0', 4],
   ] as const) list.addSubnet(prefix, bits, 'ipv4');
   for (const [prefix, bits] of [
-    ['::', 128], ['::1', 128], ['64:ff9b::', 96], ['100::', 64], ['2001::', 32],
+    ['::', 96], ['::1', 128], ['64:ff9b::', 96], ['64:ff9b:1::', 48], ['fec0::', 10], ['100::', 64], ['2001::', 32],
     ['2001:db8::', 32], ['2002::', 16], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8],
   ] as const) list.addSubnet(prefix, bits, 'ipv6');
   return list;
@@ -162,7 +162,12 @@ export async function safeFetch(
         redirect: 'manual',
         // Node's fetch accepts an undici dispatcher; the DOM RequestInit type doesn't list it.
         dispatcher: guardedDispatcher(),
-      } as RequestInit);
+      } as RequestInit).catch((err: unknown) => {
+        // fetch wraps a connect-time refusal in TypeError('fetch failed'); unwrap it so
+        // callers can skip refused hosts with a plain instanceof check.
+        const cause = (err as { cause?: unknown }).cause;
+        throw cause instanceof BlockedUrlError ? cause : err;
+      });
 
       const location = res.headers.get('location');
       if (res.status < 300 || res.status >= 400 || !location) {
