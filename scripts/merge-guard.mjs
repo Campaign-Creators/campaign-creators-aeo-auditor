@@ -12,8 +12,9 @@
  * checks it out in a throwaway worktree and runs, ON THE MERGE: npm ci, typecheck,
  * conflict-marker scan, vitest run (one worker), lint (errors in touched files may not grow; whole-repo count
  * is informational), build with placeholder env (never real keys: the build must not need them).
- * `post` proves it landed BY CONTENT. This repo has used both squash and merge commits, and
- * status is not evidence either way; the content checks cover merge, rebase and squash.
+ * `post` proves it landed BY CONTENT: every hunk the PR changed must be on main. This repo has used
+ * both squash and merge commits, and status is not evidence either way; the check covers merge,
+ * rebase and squash, and a missing hunk stops the verdict.
  *
  *   node scripts/merge-guard.mjs pre  <pr>
  *   node scripts/merge-guard.mjs post <pr>
@@ -204,28 +205,54 @@ function pre() {
     : 'the merge result is broken even though the branch may be green');
 }
 
+// True when every hunk the PR itself changed is on main: the PR's own diff (fork point to head,
+// lockfile excluded) must reverse-apply cleanly to main's tree. Comparing whole files instead fails
+// whenever main moved on in those files after the branch was cut, e.g. a branch that predates
+// another PR touching the same package.json. `target` is the merge commit when it is on main (so
+// later PRs that rewrite the same lines don't fail an old check), otherwise main itself.
+function prChangesOnMain(head, mergeSha, target) {
+  const before = mergeSha && gitOk(['cat-file', '-e', `${mergeSha}^1`]) ? `${mergeSha}^1` : 'origin/main';
+  // No shell: cmd.exe on Windows treats the `^` in `<sha>^1` as an escape character.
+  const base = execFileSync('git', ['merge-base', head, before], { encoding: 'utf8' }).trim();
+  const patch = execFileSync('git', ['diff', '--binary', `${base}..${head}`, '--', '.', ':(exclude)package-lock.json'],
+    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  if (!patch.trim()) return { ok: false, detail: 'no changes to compare' }; // no evidence
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'merge-guard-post-'));
+  try {
+    const patchFile = path.join(tmp, 'pr.patch');
+    fs.writeFileSync(patchFile, patch);
+    // A throwaway index holding main's tree, so the check never touches the caller's checkout.
+    const env = { ...process.env, GIT_INDEX_FILE: path.join(tmp, 'index') };
+    execFileSync('git', ['read-tree', target], { env, stdio: 'ignore' });
+    try {
+      execFileSync('git', ['apply', '--cached', '--check', '-R', patchFile], { env, stdio: 'ignore' });
+      return { ok: true, detail: `all hunks ${base.slice(0, 7)}..${head.slice(0, 7)}` };
+    } catch {
+      return { ok: false, detail: 'some hunks missing' };
+    }
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 function post() {
   const pr = info();
   console.log(`\nPR #${pr.number}  ${pr.title}\n`);
   const head = fetchAll();
   let ok = check('reports merged', pr.state === 'MERGED', pr.state);
 
-  // Content, not status. Landed if ANY of: merge commit is an ancestor of main (merge-commit
-  // strategy), every patch of the branch is in main (`git cherry` shows no '+', rebase strategy),
-  // or every file the PR touched is identical on main (squash strategy, nothing later changed it).
+  // Content, not status. Required: every hunk the PR changed is on main, which holds for merge,
+  // rebase and squash alike. Ancestry and `git cherry` are shown for context only.
   const sha = pr.mergeCommit?.oid;
   const ancestor = !!sha && shOk(`git merge-base --is-ancestor ${sha} origin/main`);
   const unmerged = sh(`git cherry origin/main ${head}`).split('\n').filter(l => l.startsWith('+')).length;
   ok = check('base branch is main', pr.baseRefName === 'main', pr.baseRefName) && ok;
-  const files = (pr.files || []).map(f => f.path).filter(f => !f.endsWith('package-lock.json'));
-  const differing = files.filter(f => !gitOk(['diff', '--quiet', 'origin/main', head, '--', f]));
   check('merge commit on main', ancestor, sha ? sha.slice(0, 8) : 'none');
   check('patches in main (cherry)', unmerged === 0, `${unmerged} not in main`);
-  const filesOk = files.length > 0 && differing.length === 0; // no files read = no evidence
-  check('files match main', filesOk, `${files.length - differing.length}/${files.length} match`);
-  for (const f of differing.slice(0, 10)) console.log(`      differs: ${f}`);
-  const landed = ancestor || unmerged === 0 || filesOk;
-  ok = check('LANDED BY CONTENT', landed, landed ? 'yes' : 'NO') && ok;
+  const hunks = prChangesOnMain(head, sha, ancestor ? sha : 'origin/main');
+  ok = check('PR changes on main', hunks.ok, hunks.detail) && ok;
+  if (!hunks.ok) console.log('      (or a later commit on main changed those lines: inspect before re-opening)');
+  ok = check('LANDED BY CONTENT', ok, ok ? 'yes' : 'NO') && ok;
 
   if (!ok && pr.state !== 'MERGED') return verdict(false, `not merged yet (state ${pr.state})`);
   verdict(ok, ok ? 'landed' : `NOT on main. The branch still has the work:\n      gh pr create --head ${pr.headRefName} --base main`);
