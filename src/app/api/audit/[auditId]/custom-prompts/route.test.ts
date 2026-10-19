@@ -12,6 +12,8 @@ const { db, probes } = vi.hoisted(() => ({
     rateLimits: [] as Array<{ ip: string; created_at: string }>,
     persistResults: true,
     failRateLimit: false,
+    /** Fail only the limiter calls for this key. */
+    failRateLimitKey: null as string | null,
     failLeads: false,
   },
   probes: {
@@ -49,7 +51,10 @@ function query(table: string) {
   };
 
   const run = async () => {
-    if (table === 'audit_rate_limits' && db.failRateLimit) {
+    const forKey = (k: string) =>
+      payload?.ip === k || filters.some((f) => f.col === 'ip' && f.val === k);
+    const keyFails = db.failRateLimitKey !== null && forKey(db.failRateLimitKey);
+    if (table === 'audit_rate_limits' && (db.failRateLimit || keyFails)) {
       return { data: null, count: null, error: { message: 'db down' } };
     }
     if (table === 'leads' && db.failLeads) {
@@ -142,6 +147,7 @@ beforeEach(() => {
   db.rateLimits.length = 0;
   db.persistResults = true;
   db.failRateLimit = false;
+  db.failRateLimitKey = null;
   db.failLeads = false;
   for (const fn of Object.values(probes)) {
     fn.mockReset();
@@ -149,6 +155,7 @@ beforeEach(() => {
   }
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://example.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key';
+  delete process.env.CUSTOM_PROMPTS_GLOBAL_MAX;
 });
 
 describe('POST /api/audit/[auditId]/custom-prompts', () => {
@@ -229,6 +236,50 @@ describe('POST /api/audit/[auditId]/custom-prompts', () => {
     expect(again.status).toBe(200);
     expect(engineCalls()).toBe(4);
     expect(db.rateLimits.length).toBe(budgetUsed);
+  });
+
+  it('caps runs across all visitors together, at the configured hourly maximum', async () => {
+    process.env.CUSTOM_PROMPTS_GLOBAL_MAX = '2';
+    const ids = [1, 2, 3].map((n) => auditId(n));
+    ids.forEach((id) => addAudit(id));
+
+    const statuses: number[] = [];
+    for (const [i, id] of ids.entries()) statuses.push((await call(id, `198.51.100.${i + 1}`)).status);
+
+    expect(statuses).toEqual([200, 200, 429]);
+    expect(engineCalls()).toBe(8);
+  });
+
+  it('uses a safe default global cap when none is configured', async () => {
+    const ids = Array.from({ length: 31 }, (_, i) => auditId(i + 1));
+    ids.forEach((id) => addAudit(id));
+
+    const statuses: number[] = [];
+    for (const [i, id] of ids.entries()) statuses.push((await call(id, `198.51.100.${i + 1}`)).status);
+
+    expect(statuses.slice(0, 30).every((s) => s === 200)).toBe(true);
+    expect(statuses[30]).toBe(429);
+  });
+
+  it.each(['0', '-5', 'abc', '', '1abc', '1e3', '1.5'])(
+    'falls back to the default for an unusable global cap setting (%j)',
+    async (value) => {
+      process.env.CUSTOM_PROMPTS_GLOBAL_MAX = value;
+      const ids = [1, 2].map((n) => auditId(n));
+      ids.forEach((id) => addAudit(id));
+      // A misread cap of 1 (or 0) would refuse the second visitor.
+      const statuses: number[] = [];
+      for (const [i, id] of ids.entries()) statuses.push((await call(id, `198.51.100.${i + 1}`)).status);
+      expect(statuses).toEqual([200, 200]);
+    },
+  );
+
+  it('fails closed when only the all-visitors limiter cannot be checked', async () => {
+    addAudit(AUDIT_ID);
+    db.failRateLimitKey = 'custom-global';
+    const res = await call(AUDIT_ID);
+    expect(res.status).toBe(503);
+    expect(engineCalls()).toBe(0);
   });
 
   it('fails closed when the limiter cannot be checked', async () => {
