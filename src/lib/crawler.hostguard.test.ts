@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 /* Both crawlers (the Inngest job and the fallback crawl route) must check every URL they
    fetch against the private-host guard: the start URL, robots sitemap hints, sitemap
@@ -122,6 +122,12 @@ function expectOnlyPublicFetches(fetchMock: ReturnType<typeof vi.fn>): void {
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
+afterEach(() => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
 beforeEach(() => {
   vi.resetModules();
   captured.handler = null;
@@ -185,6 +191,39 @@ describe.each([
       await crawl('https://example.com');
 
       expectOnlyPublicFetches(fetchMock);
+    },
+    30_000,
+  );
+
+  it(
+    'finishes when a page body stops sending',
+    async () => {
+      let cancelled = false;
+      const site = siteResponder('https://example.com/sitemap.xml');
+      fetchMock = vi.fn(async (input: string | URL) => {
+        if (new URL(String(input)).pathname !== '/') return site(input);
+        // One chunk, then silence. A stall rather than an endless body: without the read
+        // timeout this spec hangs and fails cleanly, instead of buffering until memory runs out.
+        let sent = false;
+        const stalled = new ReadableStream<Uint8Array>({
+          // Bounded: one chunk ever, and never after cancel.
+          pull: (c) => {
+            if (sent || cancelled) return new Promise(() => {});
+            sent = true;
+            c.enqueue(new TextEncoder().encode('<html><title>t</title>'));
+          },
+          cancel: () => {
+            cancelled = true;
+          },
+        });
+        return new Response(stalled, { headers: { 'content-type': 'text/html' } });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await crawl('https://example.com');
+
+      // The read timed out and let go of the connection, rather than the stream ending.
+      expect(cancelled).toBe(true);
     },
     30_000,
   );
