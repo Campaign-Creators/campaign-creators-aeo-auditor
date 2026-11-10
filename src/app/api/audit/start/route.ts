@@ -5,6 +5,7 @@ import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { isBlockedHost } from '@/lib/safeFetch';
 import { inngest } from '@/lib/inngest/client';
 import { countTodaysAudits, pauseRefusal, runGate } from '@/lib/gate';
+import { staffEmail, staffList } from '@/lib/staff';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -67,8 +68,11 @@ export async function POST(request: NextRequest): Promise<Response> {
       return NextResponse.json({ error: 'Database error' }, { status: 500 });
     }
 
-    // After the per-IP limiter, so a caller over their limit costs no count query.
-    const refused = await runGate(() => countTodaysAudits(getSupabase()));
+    // After the per-IP limiter, so a caller over their limit costs no count or token check.
+    const staff = (await staffEmail(request)) !== null;
+    // requested_by exists only once draft 008 is applied, which comes before AEO_STAFF_EMAILS is set.
+    const publicOnly = staffList().length > 0;
+    const refused = await runGate(() => countTodaysAudits(getSupabase(), { publicOnly }), { staff });
     if (refused) return NextResponse.json(refused.body, { status: refused.status });
 
     let body: unknown;
@@ -117,6 +121,7 @@ export async function POST(request: NextRequest): Promise<Response> {
           utm_campaign: parsed.data.utm_campaign || null,
           utm_content: parsed.data.utm_content || null,
           utm_term: parsed.data.utm_term || null,
+          ...(staff ? { requested_by: 'staff' } : {}),
         })
         .select('id')
         .single();

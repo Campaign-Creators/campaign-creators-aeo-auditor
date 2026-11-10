@@ -117,6 +117,15 @@ describe('run gate', () => {
     expect(logged()).toContain('[gate] observe count 12');
   });
 
+  it('staff skip the daily cap and staff_only (AC-019); pause still applies', async () => {
+    healthy('enforce');
+    expect(await runGate(async () => 50, { staff: true })).toBeNull();
+    process.env.AEO_PUBLIC_ACCESS = 'staff_only';
+    expect(await runGate(async () => 0, { staff: true })).toBeNull();
+    process.env.AEO_AUDITS_PAUSED = 'true';
+    expect((await runGate(async () => 0, { staff: true }))?.body.code).toBe('PAUSED');
+  });
+
   it('observe logs what it would refuse and refuses nothing', async () => {
     healthy('observe');
     expect(await runGate(async () => 50)).toBeNull();
