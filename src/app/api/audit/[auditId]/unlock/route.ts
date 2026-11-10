@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { syncAeoLead, type AeoLeadPayload } from '@/lib/hubspot';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { unlockCookieName, unlockRefusal, unlockToken } from '@/lib/gate';
+import { staffEmail } from '@/lib/staff';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -81,22 +82,29 @@ export async function POST(
     console.error('[unlock] rate limit check failed; allowing the request:', err);
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  // Staff (FR-014) see the full report without the form: no lead, no CRM sync.
+  const staff = await staffEmail(request);
+
+  let name = '';
+  let email = '';
+  if (!staff) {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const parsed = unlockSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues[0].message },
+        { status: 400 },
+      );
+    }
+    ({ name, email } = parsed.data);
   }
 
-  const parsed = unlockSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0].message },
-      { status: 400 },
-    );
-  }
-
-  const { name, email } = parsed.data;
   const supabase = getSupabase();
 
   // Fetch audit request + results in one go
@@ -118,6 +126,11 @@ export async function POST(
 
   const notReady = unlockRefusal(auditId, audit.status, !!result);
   if (notReady) return NextResponse.json(notReady.body, { status: notReady.status });
+
+  if (staff) {
+    console.log('[unlock] staff view for audit', auditId);
+    return withUnlockProof(NextResponse.json({ success: true, staff: true }), auditId);
+  }
 
   // ── 1. Save lead to Supabase ──────────────────────────────────────────
   const { error: leadError } = await supabase.from('leads').upsert(
@@ -215,7 +228,11 @@ export async function POST(
     console.warn('[unlock] No audit results found for HubSpot sync — audit may still be processing');
   }
 
-  const res = NextResponse.json({ success: true });
+  return withUnlockProof(NextResponse.json({ success: true }), auditId);
+}
+
+/** Sets the signed per-audit unlock cookie when a cookie key is configured. */
+function withUnlockProof(res: NextResponse, auditId: string): NextResponse {
   const proof = unlockToken(auditId);
   if (proof) {
     res.cookies.set(unlockCookieName(auditId), proof, {

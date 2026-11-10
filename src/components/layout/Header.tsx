@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useStaff } from '@/lib/useStaff';
 import styles from './Header.module.css';
 
 export function Header() {
   const pathname = usePathname();
   const isHomepage = pathname === '/';
+  const staff = useStaff();
 
   return (
     <header className={styles.header} role="banner">
@@ -20,6 +22,7 @@ export function Header() {
             className={styles.logoImg}
           />
         </Link>
+        {staff && <span className={styles.staffBadge}>Staff</span>}
 
         {isHomepage && (
           <nav className={styles.nav} aria-label="Main navigation">
