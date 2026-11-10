@@ -1,0 +1,24 @@
+/* Not found, failed and not-ready states: design tokens instead of fixed colours. */
+.state {
+  text-align: center;
+  padding: 6rem 1rem;
+  max-width: 36rem;
+  margin: 0 auto;
+}
+
+.title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0;
+}
+
+.text {
+  color: var(--ink-2);
+  margin: 0.5rem 0 0;
+  text-wrap: pretty;
+}
+
+.action {
+  margin-top: 1.5rem;
+}
