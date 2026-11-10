@@ -7,7 +7,7 @@ import {
   probeGoogleAI,
 } from '@/lib/auditor/ai-probe';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
-import { reportAccess, unlockCookieName } from '@/lib/gate';
+import { countTodaysAudits, reportAccess, runGate, unlockCookieName } from '@/lib/gate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -122,6 +122,10 @@ export async function POST(
   if (!leadCount) {
     return NextResponse.json({ error: 'Unlock the report first' }, { status: 403 });
   }
+
+  // The run gate covers the first run too; before the limiter, so a refusal spends no budget.
+  const refused = await runGate(() => countTodaysAudits(supabase));
+  if (refused) return NextResponse.json(refused.body, { status: refused.status });
 
   try {
     const reserve = { reserveFirst: true };

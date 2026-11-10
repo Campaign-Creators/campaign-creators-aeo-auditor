@@ -127,17 +127,21 @@ export function startOfUtcDay(now = new Date()): string {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
 }
 
+/** Rule 1 on its own, in every mode: cheap, so routes can check it before anything else. */
+export function pauseRefusal(): Refusal | null {
+  if ((process.env.AEO_AUDITS_PAUSED ?? '').trim() !== 'true') return null;
+  logGate(gateMode(), 'refuse', 'PAUSED');
+  return refusal('PAUSED');
+}
+
 /**
  * Rules in order, first failure wins. Every caller is public until staff sign-in exists.
  * `countToday` is only called when the earlier rules pass and a cap applies.
  */
 export async function runGate(countToday: () => Promise<number>): Promise<Refusal | null> {
-  const env = process.env;
+  const paused = pauseRefusal();
+  if (paused) return paused;
   const mode = gateMode();
-  if ((env.AEO_AUDITS_PAUSED ?? '').trim() === 'true') {
-    logGate(mode, 'refuse', 'PAUSED');
-    return refusal('PAUSED');
-  }
   if (mode === 'off') return null;
 
   const code = await firstFailingRule(countToday, mode);
@@ -157,12 +161,28 @@ async function firstFailingRule(countToday: () => Promise<number>, mode: GateMod
   if ((env.AEO_PUBLIC_ACCESS ?? '').trim() === 'staff_only') return 'STAFF_ONLY';
 
   const cap = dailyCap();
-  // Enforce without a cap fails closed; observe just reports that the key is missing.
-  if (cap === null) return 'CONFIG_MISSING';
+  // Enforce without a cap fails closed. Observe logs the count instead, to help pick the cap.
+  if (cap === null && mode === 'enforce') return 'CONFIG_MISSING';
   try {
-    return (await countToday()) >= cap ? 'DAILY_CAP' : null;
+    const n = await countToday();
+    if (mode === 'observe') console.log(`[gate] observe count ${n}`);
+    return cap !== null && n >= cap ? 'DAILY_CAP' : null;
   } catch (err) {
     console.error('[gate] daily count failed:', err);
     return mode === 'enforce' ? 'CONFIG_MISSING' : null;
   }
+}
+
+type CountClient = {
+  from(t: string): { select(c: string, o: { count: 'exact'; head: true }): { gte(col: string, v: string): PromiseLike<{ count: number | null; error: unknown }> } };
+};
+
+/** Today's audits (UTC day), for the daily cap. Throws on a database error. */
+export async function countTodaysAudits(supabase: CountClient): Promise<number> {
+  const { count, error } = await supabase
+    .from('audit_requests')
+    .select('id', { count: 'exact', head: true })
+    .gte('created_at', startOfUtcDay());
+  if (error) throw error;
+  return count ?? 0;
 }

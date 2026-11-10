@@ -103,6 +103,20 @@ describe('run gate', () => {
     err.mockRestore();
   });
 
+  it('observe without a cap logs today\'s count, not a config refusal', async () => {
+    healthy('observe');
+    delete process.env.AEO_DAILY_AUDIT_CAP;
+    expect(await runGate(async () => 7)).toBeNull();
+    expect(logged()).toContain('[gate] observe count 7');
+    expect(logged()).not.toContain('CONFIG_MISSING');
+  });
+
+  it('observe with a cap also logs the count', async () => {
+    healthy('observe');
+    await runGate(async () => 12);
+    expect(logged()).toContain('[gate] observe count 12');
+  });
+
   it('observe logs what it would refuse and refuses nothing', async () => {
     healthy('observe');
     expect(await runGate(async () => 50)).toBeNull();

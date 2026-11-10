@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { isBlockedHost } from '@/lib/safeFetch';
 import { inngest } from '@/lib/inngest/client';
-import { runGate, startOfUtcDay } from '@/lib/gate';
+import { countTodaysAudits, pauseRefusal, runGate } from '@/lib/gate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -52,15 +52,8 @@ export async function POST(request: NextRequest): Promise<Response> {
   const ip = getClientIp(request);
 
   try {
-    const refused = await runGate(async () => {
-      const { count, error } = await getSupabase()
-        .from('audit_requests')
-        .select('id', { count: 'exact', head: true })
-        .gte('created_at', startOfUtcDay());
-      if (error) throw error;
-      return count ?? 0;
-    });
-    if (refused) return NextResponse.json(refused.body, { status: refused.status });
+    const paused = pauseRefusal();
+    if (paused) return NextResponse.json(paused.body, { status: paused.status });
 
     try {
       const { limited } = await checkRateLimit(ip);
@@ -73,6 +66,10 @@ export async function POST(request: NextRequest): Promise<Response> {
     } catch (outerErr) { console.error("OUTER_ERROR:", outerErr);
       return NextResponse.json({ error: 'Database error' }, { status: 500 });
     }
+
+    // After the per-IP limiter, so a caller over their limit costs no count query.
+    const refused = await runGate(() => countTodaysAudits(getSupabase()));
+    if (refused) return NextResponse.json(refused.body, { status: refused.status });
 
     let body: unknown;
     try {

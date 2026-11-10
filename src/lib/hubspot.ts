@@ -347,6 +347,8 @@ export async function upsertContact(
 // ---------------------------------------------------------------------------
 
 export async function syncAeoLead(payload: AeoLeadPayload): Promise<HubSpotContactResponse | null> {
+  // Off switch for test environments: the lead row is still stored by the caller.
+  if ((process.env.AEO_HUBSPOT_SYNC ?? '').trim().toLowerCase() === 'off') return null;
   const { firstName, lastName } = splitName(payload.fullName);
 
   /* Standard HubSpot fields: offered, not imposed. upsertContact writes these only

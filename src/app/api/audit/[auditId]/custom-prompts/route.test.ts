@@ -197,6 +197,18 @@ describe('custom prompts follow report access', () => {
     expect((await res.json()).customProbe).toEqual(stored);
   });
 
+  it('enforce: the run gate applies to the first run (daily cap reached)', async () => {
+    Object.assign(process.env, {
+      VERCEL_ENV: 'production', ANTHROPIC_API_KEY: 'a', INNGEST_EVENT_KEY: 'i', AEO_DAILY_AUDIT_CAP: '1',
+    });
+    addAudit(AUDIT_ID);
+    const res = await call(AUDIT_ID, undefined, undefined, await proof(AUDIT_ID));
+    for (const k of ['VERCEL_ENV', 'ANTHROPIC_API_KEY', 'INNGEST_EVENT_KEY', 'AEO_DAILY_AUDIT_CAP']) delete process.env[k];
+    expect(res.status).toBe(503);
+    expect((await res.json()).code).toBe('DAILY_CAP');
+    expect(engineCalls()).toBe(0);
+  });
+
   it('observe: runs as today without the cookie', async () => {
     process.env.AEO_GATE_MODE = 'observe';
     addAudit(AUDIT_ID);
