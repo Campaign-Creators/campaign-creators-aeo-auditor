@@ -15,6 +15,13 @@ export interface ProbeReport {
   citedCount: number;
   totalPrompts: number;
   status: 'cited' | 'partial' | 'missing';
+  /** Prompts the engine failed to answer; they are not in totalPrompts. Absent when none. */
+  failedPrompts?: number;
+}
+
+function failed(prompts: string[], results: ProbeResult[]): { failedPrompts?: number } {
+  const n = prompts.length - results.length;
+  return n > 0 ? { failedPrompts: n } : {};
 }
 
 function generatePrompts(
@@ -111,6 +118,7 @@ export async function probeWithPrompts(
     results,
     citedCount,
     totalPrompts: results.length,
+    ...failed(prompts, results),
     status: citedCount >= 4 ? 'cited' : citedCount >= 1 ? 'partial' : 'missing',
   };
 }
@@ -155,6 +163,7 @@ export async function probeOpenAI(
     results,
     citedCount,
     totalPrompts: results.length,
+    ...failed(prompts, results),
     status: citedCount >= 4 ? 'cited' : citedCount >= 1 ? 'partial' : 'missing',
   };
 }
@@ -202,6 +211,7 @@ export async function probePerplexity(
     results,
     citedCount,
     totalPrompts: results.length,
+    ...failed(prompts, results),
     status: citedCount >= 4 ? 'cited' : citedCount >= 1 ? 'partial' : 'missing',
   };
 }
@@ -318,6 +328,7 @@ export async function probeGoogleAI(
     results,
     citedCount,
     totalPrompts: results.length,
+    ...failed(prompts, results),
     status: citedCount >= 4 ? 'cited' : citedCount >= 1 ? 'partial' : 'missing',
   };
 }
