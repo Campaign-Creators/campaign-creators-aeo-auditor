@@ -12,9 +12,10 @@ export function staffList(): string[] {
     .filter(Boolean);
 }
 
-type Verify = (token: string) => Promise<string | null>;
+type TokenUser = { email?: string | null; email_confirmed_at?: string | null } | null;
+type Verify = (token: string) => Promise<TokenUser>;
 
-/** The token's email, checked server-side with the service client. */
+/** The token's user, checked server-side with the service client. */
 const verifyWithSupabase: Verify = async (token) => {
   const supabase = createClient(
     (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').trim(),
@@ -22,7 +23,7 @@ const verifyWithSupabase: Verify = async (token) => {
     { auth: { autoRefreshToken: false, persistSession: false } },
   );
   const { data, error } = await supabase.auth.getUser(token);
-  return error ? null : data.user?.email ?? null;
+  return error ? null : data.user ?? null;
 };
 
 /** The staff member's email, or null for a public caller. */
@@ -37,7 +38,10 @@ export async function staffEmail(
   const token = header.slice('Bearer '.length).trim();
   if (!token) return null;
   try {
-    const email = (await verify(token))?.trim().toLowerCase();
+    const user = await verify(token);
+    // An unconfirmed address proves nothing: anyone can sign up with an email they don't own.
+    if (!user?.email_confirmed_at) return null;
+    const email = user.email?.trim().toLowerCase();
     return email && list.includes(email) ? email : null;
   } catch (err) {
     console.error('[staff] token check failed; treating the caller as public:', err);

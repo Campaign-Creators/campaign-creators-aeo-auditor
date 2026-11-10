@@ -18,24 +18,32 @@ describe('staff list', () => {
 
 describe('staffEmail', () => {
   it('no list: nobody is staff, and the token is not even checked', async () => {
-    const verify = vi.fn(async () => 'staff@example.com');
+    const verify = vi.fn(async () => ({ email: 'staff@example.com', email_confirmed_at: 'x' }));
     expect(await staffEmail(req('Bearer t'), verify)).toBeNull();
     expect(verify).not.toHaveBeenCalled();
   });
 
-  it('a verified token for a listed email is staff', async () => {
+  const confirmed = (email: string) => async () => ({ email, email_confirmed_at: '2026-11-01T00:00:00Z' });
+
+  it('a verified token for a listed, confirmed email is staff', async () => {
     process.env.AEO_STAFF_EMAILS = 'staff@example.com';
-    expect(await staffEmail(req('Bearer good'), async () => 'Staff@Example.com')).toBe('staff@example.com');
+    expect(await staffEmail(req('Bearer good'), confirmed('Staff@Example.com'))).toBe('staff@example.com');
+  });
+
+  it('a listed email that was never confirmed is public', async () => {
+    process.env.AEO_STAFF_EMAILS = 'staff@example.com';
+    expect(await staffEmail(req('Bearer good'), async () => ({ email: 'staff@example.com', email_confirmed_at: null }))).toBeNull();
+    expect(await staffEmail(req('Bearer good'), async () => ({ email: 'staff@example.com' }))).toBeNull();
   });
 
   it('a verified token for an unlisted email is public', async () => {
     process.env.AEO_STAFF_EMAILS = 'staff@example.com';
-    expect(await staffEmail(req('Bearer good'), async () => 'visitor@example.com')).toBeNull();
+    expect(await staffEmail(req('Bearer good'), confirmed('visitor@example.com'))).toBeNull();
   });
 
   it('no token, a malformed header, or a token that fails to verify is public', async () => {
     process.env.AEO_STAFF_EMAILS = 'staff@example.com';
-    const ok = async () => 'staff@example.com';
+    const ok = confirmed('staff@example.com');
     expect(await staffEmail(req(), ok)).toBeNull();
     expect(await staffEmail(req('Basic abc'), ok)).toBeNull();
     expect(await staffEmail(req('Bearer '), ok)).toBeNull();
