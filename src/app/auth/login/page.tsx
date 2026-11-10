@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
@@ -108,10 +107,6 @@ export default function LoginPage() {
             )}
           </button>
         </form>
-
-        <div className={styles.foot}>
-          New here? <Link href="/auth/signup">Create an account</Link>
-        </div>
       </div>
     </section>
   );

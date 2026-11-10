@@ -18,22 +18,6 @@ export function getGrade(score: number): string {
   return 'F';
 }
 
-export function computeOverallScore(scores: {
-  ai_crawler: number;
-  schema: number;
-  content_structure: number;
-  authority: number;
-  freshness: number;
-}): number {
-  const result =
-    scores.ai_crawler * 0.25 +
-    scores.schema * 0.25 +
-    scores.content_structure * 0.2 +
-    scores.authority * 0.15 +
-    scores.freshness * 0.15;
-  return Math.round(result * 100) / 100;
-}
-
 function clamp(score: number): number {
   return Math.max(0, Math.min(100, score));
 }
@@ -114,8 +98,6 @@ export interface RunScorersResult {
   freshness_grade: string;
   brevity_score: number;
   brevity_grade: string;
-  overall_score: number;
-  overall_grade: string;
   raw_findings: RawFindings;
 }
 
@@ -219,13 +201,6 @@ export function runScorers(input: RunScorersInput): RunScorersResult {
   const content_structure = scoreContentStructure(findings);
   const authority = scoreAuthority(findings);
   const freshness = scoreFreshness(findings);
-  const overall = computeOverallScore({
-    ai_crawler,
-    schema,
-    content_structure,
-    authority,
-    freshness,
-  });
 
   return {
     answerability_score: ai_crawler,
@@ -238,8 +213,6 @@ export function runScorers(input: RunScorersInput): RunScorersResult {
     freshness_grade: getGrade(freshness),
     brevity_score: schema,
     brevity_grade: getGrade(schema),
-    overall_score: overall,
-    overall_grade: getGrade(overall),
     raw_findings: findings,
   };
 }

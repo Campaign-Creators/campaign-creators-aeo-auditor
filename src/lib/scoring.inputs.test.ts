@@ -12,6 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import * as cheerio from 'cheerio';
 import {
+  computeOverall,
   runScorers,
   scoreAiCrawler,
   scoreFreshness,
@@ -197,6 +198,6 @@ describe('the two dimensions these inputs feed', () => {
     });
     expect(perfect.answerability_score).toBe(100);
     expect(perfect.freshness_score).toBe(100);
-    expect(perfect.overall_grade).toBe('A+');
+    expect(computeOverall(perfect, null).overall_grade).toBe('A+');
   });
 });
