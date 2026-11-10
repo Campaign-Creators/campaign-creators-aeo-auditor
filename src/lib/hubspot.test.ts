@@ -47,6 +47,8 @@ const OFFERED = { firstname: 'Ada', lastname: 'Lovelace', website: 'example.com'
 beforeEach(() => {
   calls = [];
   vi.stubEnv('HUBSPOT_PRIVATE_APP_TOKEN', 'pat-test-token');
+  // CI sets AEO_HUBSPOT_SYNC=off as a safety net; these specs exercise the sync against a fake.
+  vi.stubEnv('AEO_HUBSPOT_SYNC', '');
 });
 
 afterEach(() => {
