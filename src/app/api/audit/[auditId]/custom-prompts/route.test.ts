@@ -125,13 +125,14 @@ function auditId(n: number): string {
   return `11111111-1111-4111-8111-${String(n).padStart(12, '0')}`;
 }
 
-async function call(id: string, ip = '203.0.113.7', prompts: unknown = ['best crm']) {
+async function call(id: string, ip = '203.0.113.7', prompts: unknown = ['best crm'], cookie?: string) {
   const { POST } = await import('./route');
-  const req = new Request(`http://localhost:3000/api/audit/${id}/custom-prompts`, {
+  const { NextRequest } = await import('next/server');
+  const req = new NextRequest(`http://localhost:3000/api/audit/${id}/custom-prompts`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': ip, ...(cookie ? { cookie } : {}) },
     body: JSON.stringify({ prompts }),
-  }) as unknown as import('next/server').NextRequest;
+  });
   return POST(req, { params: Promise.resolve({ auditId: id }) });
 }
 
@@ -156,6 +157,53 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://example.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key';
   delete process.env.CUSTOM_PROMPTS_GLOBAL_MAX;
+  delete process.env.AEO_GATE_MODE;
+  delete process.env.AEO_UNLOCK_COOKIE_SECRET;
+});
+
+describe('custom prompts follow report access', () => {
+  const stored = { prompts: ['stored question'] };
+  async function proof(id: string) {
+    const { unlockToken, unlockCookieName } = await import('@/lib/gate');
+    return `${unlockCookieName(id)}=${unlockToken(id)}`;
+  }
+
+  beforeEach(() => {
+    process.env.AEO_GATE_MODE = 'enforce';
+    process.env.AEO_UNLOCK_COOKIE_SECRET = 'test-value';
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  it('enforce: stored results are not returned without the unlock cookie', async () => {
+    addAudit(AUDIT_ID);
+    db.results.set(AUDIT_ID, { raw_findings: { customProbe: stored } });
+    const res = await call(AUDIT_ID);
+    expect(res.status).toBe(403);
+    expect(JSON.stringify(await res.json())).not.toContain('stored question');
+  });
+
+  it('enforce: a lead on the audit is not enough to run without the cookie', async () => {
+    addAudit(AUDIT_ID);
+    const res = await call(AUDIT_ID);
+    expect(res.status).toBe(403);
+    expect(engineCalls()).toBe(0);
+  });
+
+  it('enforce: with the cookie, stored results come back', async () => {
+    addAudit(AUDIT_ID);
+    db.results.set(AUDIT_ID, { raw_findings: { customProbe: stored } });
+    const res = await call(AUDIT_ID, undefined, undefined, await proof(AUDIT_ID));
+    expect(res.status).toBe(200);
+    expect((await res.json()).customProbe).toEqual(stored);
+  });
+
+  it('observe: runs as today without the cookie', async () => {
+    process.env.AEO_GATE_MODE = 'observe';
+    addAudit(AUDIT_ID);
+    const res = await call(AUDIT_ID);
+    expect(res.status).toBe(200);
+    expect(engineCalls()).toBe(4);
+  });
 });
 
 describe('POST /api/audit/[auditId]/custom-prompts', () => {

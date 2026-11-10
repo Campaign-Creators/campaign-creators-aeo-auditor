@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
+import { cookies } from 'next/headers';
+import { reportAccess, unlockCookieName } from '@/lib/gate';
 import styles from './pdf.module.css';
 
 export const dynamic = 'force-dynamic';
@@ -221,6 +223,16 @@ export default async function AuditPdfPage({ params }: PageProps) {
       <div style={{ textAlign: 'center', padding: '4rem 1rem', fontFamily: 'Inter, sans-serif' }}>
         <h2>Audit failed</h2>
         <p>Something went wrong analysing this domain.</p>
+      </div>
+    );
+  }
+
+  const cookie = (await cookies()).get(unlockCookieName(auditId))?.value;
+  if (reportAccess(auditId, cookie) === 'preview') {
+    return (
+      <div style={{ textAlign: 'center', padding: '4rem 1rem', fontFamily: 'Inter, sans-serif' }}>
+        <h2>Unlock the report first</h2>
+        <p><a href={`/audit/${auditId}`}>Open the report</a> and enter your details to download it.</p>
       </div>
     );
   }

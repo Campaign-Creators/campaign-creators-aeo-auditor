@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { syncAeoLead, type AeoLeadPayload } from '@/lib/hubspot';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { unlockCookieName, unlockRefusal, unlockToken } from '@/lib/gate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -101,7 +102,7 @@ export async function POST(
   // Fetch audit request + results in one go
   const { data: audit } = await supabase
     .from('audit_requests')
-    .select('id, url, created_at')
+    .select('id, url, status, created_at')
     .eq('id', auditId)
     .maybeSingle();
 
@@ -114,6 +115,9 @@ export async function POST(
     .select('*')
     .eq('audit_request_id', auditId)
     .maybeSingle();
+
+  const notReady = unlockRefusal(auditId, audit.status, !!result);
+  if (notReady) return NextResponse.json(notReady.body, { status: notReady.status });
 
   // ── 1. Save lead to Supabase ──────────────────────────────────────────
   const { error: leadError } = await supabase.from('leads').upsert(
@@ -211,5 +215,12 @@ export async function POST(
     console.warn('[unlock] No audit results found for HubSpot sync — audit may still be processing');
   }
 
-  return NextResponse.json({ success: true });
+  const res = NextResponse.json({ success: true });
+  const proof = unlockToken(auditId);
+  if (proof) {
+    res.cookies.set(unlockCookieName(auditId), proof, {
+      httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 365,
+    });
+  }
+  return res;
 }

@@ -7,6 +7,7 @@ import {
   probeGoogleAI,
 } from '@/lib/auditor/ai-probe';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { reportAccess, unlockCookieName } from '@/lib/gate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -97,6 +98,11 @@ export async function POST(
   }
 
   const raw = (resultData.raw_findings ?? {}) as Record<string, unknown>;
+
+  // Custom prompts belong to the full report: same access rule as the report page.
+  if (reportAccess(auditId, request.cookies.get(unlockCookieName(auditId))?.value) === 'preview') {
+    return NextResponse.json({ error: 'Unlock the report first' }, { status: 403 });
+  }
 
   // Already run: return the stored results without spending again.
   if (raw.customProbe) {

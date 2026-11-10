@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { generatePreviewInsights } from '@/src/lib/audit/insights';
 import type { RawFindings } from '@/src/types/audit';
+import { reportAccess, unlockCookieName } from '@/lib/gate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -67,7 +68,7 @@ interface CategoryEntry {
 type Categories = Record<string, CategoryEntry>;
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   ctx: { params: Promise<{ auditId: string }> },
 ): Promise<Response> {
   const { auditId } = await ctx.params;
@@ -177,11 +178,13 @@ export async function GET(
       ? generatePreviewInsights(result.raw_findings).slice(0, 3)
       : [];
 
+    const locked = reportAccess(auditId, request.cookies.get(unlockCookieName(auditId))?.value) === 'preview';
+
     return NextResponse.json({
       auditId,
       status: 'complete',
       domain_url,
-      categories,
+      categories: locked ? { overall: categories.overall } : categories,
       preview_insights,
     });
   } catch {
