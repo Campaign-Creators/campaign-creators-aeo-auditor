@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { OpenAIIcon, PerplexityIcon, GoogleAIIcon, ClaudeIcon } from '@/components/aeo/EngineIcons';
+import ReportGuide from '@/components/aeo/ReportGuide';
 import styles from './AuditResultPage.module.css';
 
 interface ProbeResult {
@@ -518,6 +519,7 @@ export default function AuditResultPage({ requestData, auditData, locked = false
               {copied && <span className={styles.copiedToast}>Link copied!</span>}
             </div>
             <button className={styles.btnSecondary} onClick={handleDownload}>Download PDF</button>
+            <ReportGuide buttonClassName={styles.btnSecondary} />
             <a href="/" className={styles.btnPrimary}>New audit</a>
           </div>
         </div>
