@@ -2,6 +2,7 @@
 
 import { useState, useRef, type FormEvent } from 'react';
 import styles from './AuditForm.module.css';
+import { staffAuthHeader } from '@/lib/staffClient';
 
 function ArrowIcon() {
   return (
@@ -62,7 +63,7 @@ export function AuditForm() {
       };
       const res = await fetch('/api/audit/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body: JSON.stringify({ url: `https://${clean}`, ...utm }),
       });
       const data = await res.json();

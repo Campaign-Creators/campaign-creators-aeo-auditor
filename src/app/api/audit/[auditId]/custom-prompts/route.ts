@@ -8,6 +8,7 @@ import {
 } from '@/lib/auditor/ai-probe';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { countTodaysAudits, reportAccess, runGate, unlockCookieName } from '@/lib/gate';
+import { staffList } from '@/lib/staff';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -124,7 +125,7 @@ export async function POST(
   }
 
   // The run gate covers the first run too; before the limiter, so a refusal spends no budget.
-  const refused = await runGate(() => countTodaysAudits(supabase));
+  const refused = await runGate(() => countTodaysAudits(supabase, { publicOnly: staffList().length > 0 }));
   if (refused) return NextResponse.json(refused.body, { status: refused.status });
 
   try {

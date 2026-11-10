@@ -20,6 +20,9 @@ vi.mock('@/lib/hubspot', () => ({
   syncAeoLead: syncMock,
 }));
 
+const { staffMock } = vi.hoisted(() => ({ staffMock: vi.fn(async (): Promise<string | null> => null) }));
+vi.mock('@/lib/staff', () => ({ staffEmail: staffMock }));
+
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from: (table: string) => ({
@@ -164,6 +167,26 @@ describe('unlock checks the audit and proves the unlock', () => {
     const cookie = res.headers.get('set-cookie') ?? '';
     expect(cookie).toContain(`aeo_unlock_audit-1=${unlockToken('audit-1')}`);
     expect(cookie.toLowerCase()).toContain('httponly');
+  });
+
+  it('staff unlock: no name or email needed, no lead, no HubSpot, but the cookie is set (AC-020)', async () => {
+    process.env.AEO_UNLOCK_COOKIE_SECRET = 'test-value';
+    ready();
+    staffMock.mockResolvedValueOnce('staff@example.com');
+    const { POST } = await import('./route');
+    const res = await POST(makeRequest({}), ctx);
+
+    expect(res.status).toBe(200);
+    expect(upsertMock).not.toHaveBeenCalled();
+    expect(syncMock).not.toHaveBeenCalled();
+    expect(res.headers.get('set-cookie') ?? '').toContain('aeo_unlock_audit-1=');
+  });
+
+  it('a public caller with an empty body is still refused', async () => {
+    ready();
+    const { POST } = await import('./route');
+    const res = await POST(makeRequest({}), ctx);
+    expect(res.status).toBe(400);
   });
 
   it('sets no cookie when none is configured', async () => {

@@ -137,22 +137,26 @@ export function pauseRefusal(): Refusal | null {
 }
 
 /**
- * Rules in order, first failure wins. Every caller is public until staff sign-in exists.
+ * Rules in order, first failure wins. Staff (a verified allow-listed sign-in, lib/staff.ts)
+ * skip the public-only rules: staff_only and the daily cap.
  * `countToday` is only called when the earlier rules pass and a cap applies.
  */
-export async function runGate(countToday: () => Promise<number>): Promise<Refusal | null> {
+export async function runGate(
+  countToday: () => Promise<number>,
+  { staff = false }: { staff?: boolean } = {},
+): Promise<Refusal | null> {
   const paused = pauseRefusal();
   if (paused) return paused;
   const mode = gateMode();
   if (mode === 'off') return null;
 
-  const code = await firstFailingRule(countToday, mode);
+  const code = await firstFailingRule(countToday, mode, staff);
   if (!code) return null;
   logGate(mode, mode === 'enforce' ? 'refuse' : 'would-refuse', code);
   return mode === 'enforce' ? refusal(code) : null;
 }
 
-async function firstFailingRule(countToday: () => Promise<number>, mode: GateMode): Promise<string | null> {
+async function firstFailingRule(countToday: () => Promise<number>, mode: GateMode, staff: boolean): Promise<string | null> {
   const env = process.env;
   const has = (k: string) => !!(env[k] ?? '').trim();
   if (!has('NEXT_PUBLIC_SUPABASE_URL') || !has('SUPABASE_SERVICE_ROLE_KEY') || !has('ANTHROPIC_API_KEY')
@@ -160,6 +164,7 @@ async function firstFailingRule(countToday: () => Promise<number>, mode: GateMod
     // Without it no visitor can ever unlock, so enforce would show previews only.
     || !has('AEO_UNLOCK_COOKIE_SECRET')) return 'CONFIG_MISSING';
   if (env.VERCEL_ENV !== 'production' && (env.AEO_PREVIEW_DB_ISOLATED ?? '').trim() !== 'true') return 'PREVIEW_SHARED_DB';
+  if (staff) return null;
   if ((env.AEO_PUBLIC_ACCESS ?? '').trim() === 'staff_only') return 'STAFF_ONLY';
 
   const cap = dailyCap();
@@ -175,16 +180,26 @@ async function firstFailingRule(countToday: () => Promise<number>, mode: GateMod
   }
 }
 
+type CountResult = PromiseLike<{ count: number | null; error: unknown }>;
 type CountClient = {
-  from(t: string): { select(c: string, o: { count: 'exact'; head: true }): { gte(col: string, v: string): PromiseLike<{ count: number | null; error: unknown }> } };
+  from(t: string): {
+    select(c: string, o: { count: 'exact'; head: true }): {
+      gte(col: string, v: string): CountResult & { is(col: string, v: null): CountResult };
+    };
+  };
 };
 
-/** Today's audits (UTC day), for the daily cap. Throws on a database error. */
-export async function countTodaysAudits(supabase: CountClient): Promise<number> {
-  const { count, error } = await supabase
+/**
+ * Today's audits (UTC day), for the daily cap. Throws on a database error.
+ * `publicOnly` leaves staff audits out; it needs the requested_by column (draft 008), which
+ * is applied before staff are configured, so callers pass it only when staff are.
+ */
+export async function countTodaysAudits(supabase: CountClient, { publicOnly = false } = {}): Promise<number> {
+  const q = supabase
     .from('audit_requests')
     .select('id', { count: 'exact', head: true })
     .gte('created_at', startOfUtcDay());
+  const { count, error } = await (publicOnly ? q.is('requested_by', null) : q);
   if (error) throw error;
   return count ?? 0;
 }

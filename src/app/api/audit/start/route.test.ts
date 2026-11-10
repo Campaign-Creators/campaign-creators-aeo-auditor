@@ -3,7 +3,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 const { rateLimitMock, supabaseInsertMock, today } = vi.hoisted(() => ({
   rateLimitMock: vi.fn(),
   supabaseInsertMock: vi.fn(),
-  today: { count: 0, since: '' },
+  today: { count: 0, since: '', publicOnly: false },
+}));
+
+const { staffMock } = vi.hoisted(() => ({ staffMock: vi.fn(async (): Promise<string | null> => null) }));
+vi.mock('@/lib/staff', async (orig) => ({
+  ...(await orig<typeof import('@/lib/staff')>()),
+  staffEmail: staffMock,
 }));
 
 vi.mock('@/lib/rateLimit', () => ({
@@ -16,9 +22,21 @@ vi.mock('@/lib/rateLimit', () => ({
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from: () => ({
-      select: () => ({
-        gte: async (_col: string, since: string) => { today.since = since; return { count: today.count, error: null }; },
-      }),
+      select: () => {
+        const result = () => ({ count: today.count, error: null });
+        return {
+          gte: (_col: string, since: string) => {
+            today.since = since;
+            const p = Promise.resolve(result());
+            return Object.assign(p, {
+              is: async (col: string, v: unknown) => {
+                if (col === 'requested_by' && v === null) today.publicOnly = true;
+                return result();
+              },
+            });
+          },
+        };
+      },
       insert: (...args: unknown[]) => {
         supabaseInsertMock(...args);
         return {
@@ -158,6 +176,29 @@ describe('POST /api/audit/start daily cap', () => {
     const { POST } = await import('./route');
     const res = await POST(makeRequest({ url: 'https://example.com' }));
     expect(res.status).toBe(201);
+  });
+
+  it('staff: at the cap, the audit starts and is marked as a staff audit (AC-019)', async () => {
+    process.env.AEO_GATE_MODE = 'enforce';
+    process.env.AEO_STAFF_EMAILS = 'staff@example.com';
+    today.count = 3;
+    staffMock.mockResolvedValueOnce('staff@example.com');
+    const { POST } = await import('./route');
+    const res = await POST(makeRequest({ url: 'https://example.com' }, { authorization: 'Bearer t' }));
+    delete process.env.AEO_STAFF_EMAILS;
+    expect(res.status).toBe(201);
+    expect(supabaseInsertMock).toHaveBeenCalledWith(expect.objectContaining({ requested_by: 'staff' }));
+  });
+
+  it('with staff configured, the daily count leaves staff audits out', async () => {
+    process.env.AEO_GATE_MODE = 'enforce';
+    process.env.AEO_STAFF_EMAILS = 'staff@example.com';
+    today.publicOnly = false;
+    const { POST } = await import('./route');
+    await POST(makeRequest({ url: 'https://example.com' }));
+    delete process.env.AEO_STAFF_EMAILS;
+    expect(today.publicOnly).toBe(true);
+    expect(supabaseInsertMock).toHaveBeenCalledWith(expect.not.objectContaining({ requested_by: expect.anything() }));
   });
 
   it('observe: at the cap, logs and still starts the audit', async () => {

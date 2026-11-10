@@ -34,6 +34,19 @@
   width: auto;
 }
 
+/* Shown only to signed-in staff; sits next to the logo, pushing the nav right. */
+.staffBadge {
+  margin-right: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
 /* ── Nav ── */
 .nav {
   display: flex;

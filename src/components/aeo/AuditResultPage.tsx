@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { staffAuthHeader } from '@/lib/staffClient';
 import { OpenAIIcon, PerplexityIcon, GoogleAIIcon, ClaudeIcon } from '@/components/aeo/EngineIcons';
 import { engineBadge } from '@/lib/auditor/engineBadge';
 import ReportGuide from '@/components/aeo/ReportGuide';
@@ -304,6 +305,33 @@ export default function AuditResultPage({ requestData, auditData, locked = false
       setUnlocked(true);
     }
   }, [requestData.id, locked]);
+
+  // Staff (FR-014): a signed-in, allow-listed browser opens the full report without the form.
+  // The server checks the token; a public visitor's empty request is refused and ignored.
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const auth = await staffAuthHeader();
+      if (!auth.Authorization) return;
+      try {
+        // Ask first, so a signed-in non-staff browser spends none of the unlock budget.
+        const who = (await (await fetch('/api/staff', { headers: auth })).json()) as { staff?: boolean };
+        if (!who.staff) return;
+        const res = await fetch(`/api/audit/${requestData.id}/unlock`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...auth },
+          body: '{}',
+        });
+        const data = (await res.json()) as { staff?: boolean };
+        if (!live || !res.ok || !data.staff) return;
+        setUnlocked(true);
+        if (locked) router.refresh();
+      } catch {
+        // stays on the public view
+      }
+    })();
+    return () => { live = false; };
+  }, [requestData.id, locked, router]);
 
   const handleUnlock = async () => {
     if (!gateName.trim()) { setGateError('Please enter your full name'); return; }
