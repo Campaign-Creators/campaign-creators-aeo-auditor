@@ -183,7 +183,7 @@ export default function AuditProgress({ domain, auditId }: Props) {
         const data = await res.json();
         if (data.status === 'complete') setCompleted(true);
         /* A failed audit used to be ignored here, so the screen span for as long as the
-           visitor was willing to watch. See docs/audit/01-crawler.md F5. */
+           visitor was willing to watch. */
         if (data.status === 'failed') {
           setFailure(
             typeof data.error === 'string' && data.error

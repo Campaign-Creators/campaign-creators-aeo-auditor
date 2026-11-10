@@ -4,7 +4,7 @@
 // stored audits, and `answerability_score` never exceeded 70 across the same 290 — both
 // because deriveFindingsFromCrawl passed `lastModified: null` and `sitemapListed: false`
 // regardless of what the crawler found. The scorers themselves were fine; they were being
-// starved of input. See docs/audit/01-crawler.md (F1, F2) and docs/audit/02-grading.md (G7).
+// starved of input.
 //
 // The file is named scoring.inputs.test.ts rather than scoring.test.ts to avoid colliding
 // with the tests on branch fix/ai-probe-caveat, which covers the overall-score arithmetic.

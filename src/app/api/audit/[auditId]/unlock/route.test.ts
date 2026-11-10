@@ -1,8 +1,6 @@
 // The unlock endpoint is public and unauthenticated, and every call writes a lead row and
 // a HubSpot contact. These cover the budget that now sits in front of it — and the
 // deliberate decision to let a real capture through when the limiter itself is broken.
-//
-// See docs/audit/03-hubspot.md H1.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 

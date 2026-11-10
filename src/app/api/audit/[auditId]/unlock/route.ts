@@ -56,7 +56,7 @@ function findTopWeakness(result: {
  * This is defence in depth, not the protection that matters: one request is enough to
  * write a contact, so the limit changes how fast, not whether. What stops an unlock from
  * damaging an existing CRM record is that the sync now fills blank fields only —
- * see lib/hubspot.ts and docs/audit/03-hubspot.md H1.
+ * see lib/hubspot.ts.
  */
 const UNLOCK_LIMIT = Number.parseInt(process.env.RATE_LIMIT_UNLOCK_MAX ?? '10', 10) || 10;
 

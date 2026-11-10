@@ -40,7 +40,7 @@ interface AuditRequestRow {
  * covers the ones already stuck and any failure mode that never reaches a writer.
  *
  * Longer than the worst honest run measured across 290 audits (p90 was 15.4 minutes,
- * and the crawl is now capped well below that). See docs/audit/01-crawler.md F5.
+ * and the crawl is now capped well below that).
  */
 const STALE_AFTER_MS = 30 * 60 * 1000;
 

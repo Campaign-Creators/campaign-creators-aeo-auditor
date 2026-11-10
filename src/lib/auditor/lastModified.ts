@@ -3,7 +3,7 @@
  *
  * `scoreFreshness` has always been implemented — 30/90/180/365-day buckets — but
  * `deriveFindingsFromCrawl` passed it `lastModified: null` unconditionally, so every
- * audit ever run scored 0 on freshness (see docs/audit/01-crawler.md, F1). The crawler
+ * audit ever run scored 0 on freshness. The crawler
  * discarded the `Last-Modified` header it received on every page.
  *
  * This module is the missing input. It lives on its own because the crawl loop exists

@@ -17,7 +17,7 @@ const crawlSchema = z.object({
 
 const MAX_PAGES = 50;
 /* Below this route's maxDuration of 60s, so the crawl ends on its own terms and the
-   handler still reaches its status writes. See docs/audit/01-crawler.md F5. */
+   handler still reaches its status writes. */
 const CRAWL_BUDGET_MS = 45_000;
 
 const GENERIC_INDUSTRY_WORDS = new Set([

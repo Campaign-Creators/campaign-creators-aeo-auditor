@@ -46,7 +46,7 @@ export function reportAccess(auditId: string, cookieValue: string | undefined): 
   return mode === 'enforce' ? 'preview' : 'full';
 }
 
-type Probe = { citedCount?: number; totalPrompts?: number; status?: string; engine?: string; results?: Array<{ cited?: boolean }> } | null | undefined;
+type Probe = { citedCount?: number; totalPrompts?: number; failedPrompts?: number; status?: string; engine?: string; results?: Array<{ cited?: boolean }> } | null | undefined;
 
 function redactProbe(p: Probe): Probe {
   if (!p) return p ?? null;
@@ -55,6 +55,8 @@ function redactProbe(p: Probe): Probe {
     status: p.status,
     citedCount: p.citedCount ?? 0,
     totalPrompts: p.totalPrompts ?? 0,
+    // A count only; lets the badge say UNAVAILABLE for an engine that failed every prompt.
+    ...(p.failedPrompts ? { failedPrompts: p.failedPrompts } : {}),
     // Keeps the cited count the preview shows; drops prompts, answers and named sites.
     results: (p.results ?? []).map(r => ({ prompt: '', cited: !!r.cited, snippet: null })),
   };

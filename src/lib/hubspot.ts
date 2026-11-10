@@ -215,7 +215,7 @@ async function ensurePropertiesExist(token: string): Promise<void> {
  * address could do the same deliberately through a public endpoint.
  *
  * Filling a blank is still useful — that is what makes the integration worth having —
- * so the rule is fill, never overwrite. See docs/audit/03-hubspot.md H1 and M1.
+ * so the rule is fill, never overwrite.
  */
 const FILL_IF_EMPTY = ['firstname', 'lastname', 'website', 'lifecyclestage'] as const;
 
