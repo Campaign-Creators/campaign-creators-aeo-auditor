@@ -5,6 +5,7 @@ import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { isBlockedHost } from '@/lib/safeFetch';
 import { inngest } from '@/lib/inngest/client';
 import { runGate, startOfUtcDay } from '@/lib/gate';
+import { staffEmail, staffList } from '@/lib/staff';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -52,14 +53,18 @@ export async function POST(request: NextRequest): Promise<Response> {
   const ip = getClientIp(request);
 
   try {
+    const staff = (await staffEmail(request)) !== null;
+    // requested_by exists only once draft 008 is applied, which comes before AEO_STAFF_EMAILS is set.
+    const staffConfigured = staffList().length > 0;
     const refused = await runGate(async () => {
-      const { count, error } = await getSupabase()
+      const q = getSupabase()
         .from('audit_requests')
         .select('id', { count: 'exact', head: true })
         .gte('created_at', startOfUtcDay());
+      const { count, error } = await (staffConfigured ? q.is('requested_by', null) : q);
       if (error) throw error;
       return count ?? 0;
-    });
+    }, { staff });
     if (refused) return NextResponse.json(refused.body, { status: refused.status });
 
     try {
@@ -120,6 +125,7 @@ export async function POST(request: NextRequest): Promise<Response> {
           utm_campaign: parsed.data.utm_campaign || null,
           utm_content: parsed.data.utm_content || null,
           utm_term: parsed.data.utm_term || null,
+          ...(staff ? { requested_by: 'staff' } : {}),
         })
         .select('id')
         .single();
