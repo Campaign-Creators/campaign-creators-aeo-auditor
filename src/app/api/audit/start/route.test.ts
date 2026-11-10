@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-const { rateLimitMock, supabaseInsertMock } = vi.hoisted(() => ({
+const { rateLimitMock, supabaseInsertMock, today } = vi.hoisted(() => ({
   rateLimitMock: vi.fn(),
   supabaseInsertMock: vi.fn(),
+  today: { count: 0, since: '' },
 }));
 
 vi.mock('@/lib/rateLimit', () => ({
@@ -15,6 +16,9 @@ vi.mock('@/lib/rateLimit', () => ({
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from: () => ({
+      select: () => ({
+        gte: async (_col: string, since: string) => { today.since = since; return { count: today.count, error: null }; },
+      }),
       insert: (...args: unknown[]) => {
         supabaseInsertMock(...args);
         return {
@@ -103,5 +107,45 @@ describe('POST /api/audit/start', () => {
     expect(res.status).toBe(500);
     const json = await res.json();
     expect(json).toEqual({ error: 'Database error' });
+  });
+});
+
+describe('POST /api/audit/start daily cap', () => {
+  const GATE_KEYS = ['AEO_GATE_MODE', 'AEO_DAILY_AUDIT_CAP', 'VERCEL_ENV', 'ANTHROPIC_API_KEY'];
+  beforeEach(() => {
+    today.count = 0;
+    Object.assign(process.env, { VERCEL_ENV: 'production', ANTHROPIC_API_KEY: 'a', AEO_DAILY_AUDIT_CAP: '3' });
+  });
+  afterEach(() => { for (const k of GATE_KEYS) delete process.env[k]; });
+
+  it('enforce: at the cap, refuses with 503 before any write or rate-limit spend', async () => {
+    process.env.AEO_GATE_MODE = 'enforce';
+    today.count = 3;
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { POST } = await import('./route');
+    const res = await POST(makeRequest({ url: 'https://example.com' }));
+    expect(res.status).toBe(503);
+    expect((await res.json()).code).toBe('DAILY_CAP');
+    expect(supabaseInsertMock).not.toHaveBeenCalled();
+    expect(rateLimitMock).not.toHaveBeenCalled();
+    expect(today.since).toMatch(/T00:00:00\.000Z$/);
+  });
+
+  it('enforce: below the cap, the audit starts', async () => {
+    process.env.AEO_GATE_MODE = 'enforce';
+    today.count = 2;
+    const { POST } = await import('./route');
+    const res = await POST(makeRequest({ url: 'https://example.com' }));
+    expect(res.status).toBe(201);
+  });
+
+  it('observe: at the cap, logs and still starts the audit', async () => {
+    process.env.AEO_GATE_MODE = 'observe';
+    today.count = 3;
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { POST } = await import('./route');
+    const res = await POST(makeRequest({ url: 'https://example.com' }));
+    expect(res.status).toBe(201);
+    expect(log.mock.calls.flat().join(' ')).toContain('[gate] observe would-refuse DAILY_CAP');
   });
 });

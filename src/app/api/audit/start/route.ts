@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { isBlockedHost } from '@/lib/safeFetch';
 import { inngest } from '@/lib/inngest/client';
+import { runGate, startOfUtcDay } from '@/lib/gate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -51,6 +52,16 @@ export async function POST(request: NextRequest): Promise<Response> {
   const ip = getClientIp(request);
 
   try {
+    const refused = await runGate(async () => {
+      const { count, error } = await getSupabase()
+        .from('audit_requests')
+        .select('id', { count: 'exact', head: true })
+        .gte('created_at', startOfUtcDay());
+      if (error) throw error;
+      return count ?? 0;
+    });
+    if (refused) return NextResponse.json(refused.body, { status: refused.status });
+
     try {
       const { limited } = await checkRateLimit(ip);
       if (limited) {

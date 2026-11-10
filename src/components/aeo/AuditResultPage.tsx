@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { OpenAIIcon, PerplexityIcon, GoogleAIIcon, ClaudeIcon } from '@/components/aeo/EngineIcons';
 import styles from './AuditResultPage.module.css';
 
@@ -109,6 +110,8 @@ interface Props {
     raw_findings?: RawFindings;
     created_at: string;
   };
+  /** The server sent preview data only; the full report arrives after unlock + refresh. */
+  locked?: boolean;
 }
 
 function resolveGradeClass(grade: string): string {
@@ -249,7 +252,8 @@ const CUSTOM_PLACEHOLDERS: [string, string, string] = [
   'e.g. Which CRM consultants are best for mid-size B2B?',
 ];
 
-export default function AuditResultPage({ requestData, auditData }: Props) {
+export default function AuditResultPage({ requestData, auditData, locked = false }: Props) {
+  const router = useRouter();
   const [animatedScore, setAnimatedScore] = useState(0);
   const [expandedDim, setExpandedDim] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -292,10 +296,10 @@ export default function AuditResultPage({ requestData, auditData }: Props) {
   }, [target]);
 
   useEffect(() => {
-    if (localStorage.getItem(`aeo-unlocked-${requestData.id}`) === 'true') {
+    if (!locked && localStorage.getItem(`aeo-unlocked-${requestData.id}`) === 'true') {
       setUnlocked(true);
     }
-  }, [requestData.id]);
+  }, [requestData.id, locked]);
 
   const handleUnlock = async () => {
     if (!gateName.trim()) { setGateError('Please enter your full name'); return; }
@@ -312,6 +316,8 @@ export default function AuditResultPage({ requestData, auditData }: Props) {
       if (res.ok) {
         localStorage.setItem(`aeo-unlocked-${requestData.id}`, 'true');
         setUnlocked(true);
+        // The unlock set a cookie; re-render on the server to receive the full report.
+        if (locked) router.refresh();
       } else {
         const data = await res.json() as { error?: string };
         setGateError(data.error ?? 'Something went wrong');

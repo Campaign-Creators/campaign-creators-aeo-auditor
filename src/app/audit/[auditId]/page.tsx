@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import { createClient } from '@supabase/supabase-js';
+import { cookies } from 'next/headers';
+import { reportAccess, redactForPreview, unlockCookieName } from '@/lib/gate';
 import AuditResultPage from '@/components/aeo/AuditResultPage';
 import AuditProgress from '@/components/aeo/AuditProgress';
 
@@ -100,10 +102,14 @@ export default async function AuditResultRoute({ params }: PageProps) {
     );
   }
 
+  const cookie = (await cookies()).get(unlockCookieName(auditId))?.value;
+  const locked = reportAccess(auditId, cookie) === 'preview';
+
   return (
     <AuditResultPage
       requestData={requestData}
-      auditData={resultRaw as any}
+      auditData={(locked ? redactForPreview(resultRaw) : resultRaw) as any}
+      locked={locked}
     />
   );
 }
