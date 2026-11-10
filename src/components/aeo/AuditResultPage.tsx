@@ -283,7 +283,9 @@ export default function AuditResultPage({ requestData, auditData, locked = false
   const target = auditData.overall_score;
 
   useEffect(() => {
-    const duration = 1400;
+    // Reduced motion: a 1 ms count-up shows the final score on the next frame.
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const duration = reduce ? 1 : 1400;
     const start = performance.now();
     function animate(now: number) {
       const t = Math.min((now - start) / duration, 1);
@@ -673,6 +675,8 @@ export default function AuditResultPage({ requestData, auditData, locked = false
                 <input
                   className={styles.gateInput}
                   type="text"
+                  aria-label="Full name"
+                  autoComplete="name"
                   placeholder="Full Name"
                   value={gateName}
                   required
@@ -683,6 +687,8 @@ export default function AuditResultPage({ requestData, auditData, locked = false
                 <input
                   className={styles.gateInput}
                   type="email"
+                  aria-label="Work email"
+                  autoComplete="email"
                   placeholder="Work Email"
                   value={gateEmail}
                   required
@@ -899,6 +905,7 @@ export default function AuditResultPage({ requestData, auditData, locked = false
                   key={i}
                   className={styles.customPromptInput}
                   type="text"
+                  aria-label={`Your question ${i + 1}`}
                   value={customInputs[i]}
                   maxLength={200}
                   disabled={customLoading}

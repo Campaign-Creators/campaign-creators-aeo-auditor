@@ -1,9 +1,11 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { reportAccess, redactForPreview, unlockCookieName } from '@/lib/gate';
 import AuditResultPage from '@/components/aeo/AuditResultPage';
 import AuditProgress from '@/components/aeo/AuditProgress';
+import styles from './page.module.css';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -17,6 +19,16 @@ function getSupabase() {
 }
 
 type PageProps = { params: Promise<{ auditId: string }> };
+
+function StateMessage({ title, action, children }: { title: string; action?: boolean; children: React.ReactNode }) {
+  return (
+    <div className={styles.state} role="status">
+      <h2 className={styles.title}>{title}</h2>
+      <p className={styles.text}>{children}</p>
+      {action && <Link href="/" className={`btn btn-primary ${styles.action}`}>Run a new audit</Link>}
+    </div>
+  );
+}
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { auditId } = await params;
@@ -45,14 +57,9 @@ export default async function AuditResultRoute({ params }: PageProps) {
 
   if (!requestRaw) {
     return (
-      <div style={{ textAlign: 'center', padding: '6rem 1rem' }}>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#374151' }}>
-          Audit not found
-        </h2>
-        <p style={{ color: '#6b7280', marginTop: '0.5rem' }}>
-          The audit ID you provided doesn&apos;t exist or has expired.
-        </p>
-      </div>
+      <StateMessage title="Audit not found" action>
+        The audit ID you provided doesn&apos;t exist or has expired.
+      </StateMessage>
     );
   }
 
@@ -67,17 +74,9 @@ export default async function AuditResultRoute({ params }: PageProps) {
 
   if (requestData.status === 'failed') {
     return (
-      <div style={{ textAlign: 'center', padding: '6rem 1rem' }}>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#374151' }}>
-          Audit failed
-        </h2>
-        <p style={{ color: '#6b7280', marginTop: '0.5rem' }}>
-          Something went wrong analysing this domain. Please try again.
-        </p>
-        <a href="/" style={{ marginTop: '1.5rem', display: 'inline-block', padding: '0.6rem 1.2rem', background: '#1d4ed8', color: '#fff', borderRadius: 8, textDecoration: 'none', fontWeight: 600 }}>
-          Run a new audit
-        </a>
-      </div>
+      <StateMessage title="Audit failed" action>
+        Something went wrong analysing this domain. Please try again.
+      </StateMessage>
     );
   }
 
@@ -91,14 +90,9 @@ export default async function AuditResultRoute({ params }: PageProps) {
 
   if (!resultRaw) {
     return (
-      <div style={{ textAlign: 'center', padding: '6rem 1rem' }}>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#374151' }}>
-          Results not ready yet
-        </h2>
-        <p style={{ color: '#6b7280', marginTop: '0.5rem' }}>
-          The audit completed but results are still being processed. Please refresh in a moment.
-        </p>
-      </div>
+      <StateMessage title="Results not ready yet">
+        The audit completed but results are still being processed. Please refresh in a moment.
+      </StateMessage>
     );
   }
 
