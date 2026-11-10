@@ -217,4 +217,12 @@ describe('syncAeoLead against an existing customer record', () => {
     expect(props.aeo_overall_grade).toBe('F');
     expect(props.aeo_audit_url).toBe('https://aeo.campaigncreators.com/audit/abc');
   });
+
+  it('AEO_HUBSPOT_SYNC=off makes no HubSpot call at all', async () => {
+    vi.stubEnv('AEO_HUBSPOT_SYNC', 'off');
+    mockHubSpot(null);
+
+    expect(await syncAeoLead(payload)).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
 });

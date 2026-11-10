@@ -120,7 +120,7 @@ describe('POST /api/audit/start daily cap', () => {
   });
   afterEach(() => { for (const k of GATE_KEYS) delete process.env[k]; });
 
-  it('enforce: at the cap, refuses with 503 before any write or rate-limit spend', async () => {
+  it('enforce: at the cap, refuses with 503 before the audit is written', async () => {
     process.env.AEO_GATE_MODE = 'enforce';
     today.count = 3;
     vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -129,8 +129,27 @@ describe('POST /api/audit/start daily cap', () => {
     expect(res.status).toBe(503);
     expect((await res.json()).code).toBe('DAILY_CAP');
     expect(supabaseInsertMock).not.toHaveBeenCalled();
-    expect(rateLimitMock).not.toHaveBeenCalled();
     expect(today.since).toMatch(/T00:00:00\.000Z$/);
+  });
+
+  it('a caller over the per-IP limit costs no daily count query', async () => {
+    process.env.AEO_GATE_MODE = 'enforce';
+    today.since = '';
+    rateLimitMock.mockResolvedValue({ limited: true });
+    const { POST } = await import('./route');
+    const res = await POST(makeRequest({ url: 'https://example.com' }));
+    expect(res.status).toBe(429);
+    expect(today.since).toBe('');
+  });
+
+  it('paused refuses before the per-IP limiter is spent', async () => {
+    process.env.AEO_AUDITS_PAUSED = 'true';
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { POST } = await import('./route');
+    const res = await POST(makeRequest({ url: 'https://example.com' }));
+    delete process.env.AEO_AUDITS_PAUSED;
+    expect(res.status).toBe(503);
+    expect(rateLimitMock).not.toHaveBeenCalled();
   });
 
   it('enforce: below the cap, the audit starts', async () => {

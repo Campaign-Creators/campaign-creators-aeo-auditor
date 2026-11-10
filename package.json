@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "merge-guard": "node scripts/merge-guard.mjs"
+    "merge-guard": "node scripts/merge-guard.mjs",
+    "gate:check": "node scripts/gate-check.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
