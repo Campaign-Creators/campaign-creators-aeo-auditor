@@ -111,10 +111,12 @@ describe('POST /api/audit/start', () => {
 });
 
 describe('POST /api/audit/start daily cap', () => {
-  const GATE_KEYS = ['AEO_GATE_MODE', 'AEO_DAILY_AUDIT_CAP', 'VERCEL_ENV', 'ANTHROPIC_API_KEY'];
+  const GATE_KEYS = ['AEO_GATE_MODE', 'AEO_DAILY_AUDIT_CAP', 'VERCEL_ENV', 'ANTHROPIC_API_KEY', 'AEO_UNLOCK_COOKIE_SECRET'];
   beforeEach(() => {
     today.count = 0;
-    Object.assign(process.env, { VERCEL_ENV: 'production', ANTHROPIC_API_KEY: 'a', AEO_DAILY_AUDIT_CAP: '3' });
+    Object.assign(process.env, {
+      VERCEL_ENV: 'production', ANTHROPIC_API_KEY: 'a', AEO_DAILY_AUDIT_CAP: '3', AEO_UNLOCK_COOKIE_SECRET: 'c',
+    });
   });
   afterEach(() => { for (const k of GATE_KEYS) delete process.env[k]; });
 

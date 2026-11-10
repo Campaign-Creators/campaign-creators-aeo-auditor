@@ -4,7 +4,7 @@ import { runGate, startOfUtcDay, gateMode } from './gate';
 const KEYS = [
   'AEO_GATE_MODE', 'AEO_AUDITS_PAUSED', 'AEO_PREVIEW_DB_ISOLATED', 'AEO_PUBLIC_ACCESS', 'AEO_DAILY_AUDIT_CAP',
   'VERCEL_ENV', 'NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'ANTHROPIC_API_KEY',
-  'INNGEST_EVENT_KEY', 'INTERNAL_CRAWLER_SECRET',
+  'INNGEST_EVENT_KEY', 'INTERNAL_CRAWLER_SECRET', 'AEO_UNLOCK_COOKIE_SECRET',
 ];
 
 let log: ReturnType<typeof vi.spyOn>;
@@ -14,6 +14,7 @@ function healthy(mode: string) {
   Object.assign(process.env, {
     AEO_GATE_MODE: mode, VERCEL_ENV: 'production', AEO_DAILY_AUDIT_CAP: '50',
     NEXT_PUBLIC_SUPABASE_URL: 'u', SUPABASE_SERVICE_ROLE_KEY: 'k', ANTHROPIC_API_KEY: 'a', INNGEST_EVENT_KEY: 'i',
+    AEO_UNLOCK_COOKIE_SECRET: 'c',
   });
 }
 
@@ -48,6 +49,12 @@ describe('run gate', () => {
   it('rule 2: missing config', async () => {
     healthy('enforce');
     delete process.env.ANTHROPIC_API_KEY;
+    expect((await runGate(async () => 0))?.body.code).toBe('CONFIG_MISSING');
+  });
+
+  it('rule 2: no unlock cookie key counts as missing config', async () => {
+    healthy('enforce');
+    delete process.env.AEO_UNLOCK_COOKIE_SECRET;
     expect((await runGate(async () => 0))?.body.code).toBe('CONFIG_MISSING');
   });
 

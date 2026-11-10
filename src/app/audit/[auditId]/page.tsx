@@ -107,6 +107,8 @@ export default async function AuditResultRoute({ params }: PageProps) {
 
   return (
     <AuditResultPage
+      // Remount when access changes so state seeded from props (custom results) refreshes.
+      key={locked ? 'preview' : 'full'}
       requestData={requestData}
       auditData={(locked ? redactForPreview(resultRaw) : resultRaw) as any}
       locked={locked}

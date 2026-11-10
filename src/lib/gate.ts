@@ -150,7 +150,9 @@ async function firstFailingRule(countToday: () => Promise<number>, mode: GateMod
   const env = process.env;
   const has = (k: string) => !!(env[k] ?? '').trim();
   if (!has('NEXT_PUBLIC_SUPABASE_URL') || !has('SUPABASE_SERVICE_ROLE_KEY') || !has('ANTHROPIC_API_KEY')
-    || !(has('INNGEST_EVENT_KEY') || has('INTERNAL_CRAWLER_SECRET'))) return 'CONFIG_MISSING';
+    || !(has('INNGEST_EVENT_KEY') || has('INTERNAL_CRAWLER_SECRET'))
+    // Without it no visitor can ever unlock, so enforce would show previews only.
+    || !has('AEO_UNLOCK_COOKIE_SECRET')) return 'CONFIG_MISSING';
   if (env.VERCEL_ENV !== 'production' && (env.AEO_PREVIEW_DB_ISOLATED ?? '').trim() !== 'true') return 'PREVIEW_SHARED_DB';
   if ((env.AEO_PUBLIC_ACCESS ?? '').trim() === 'staff_only') return 'STAFF_ONLY';
 
