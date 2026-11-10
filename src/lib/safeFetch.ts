@@ -201,9 +201,17 @@ export function timeLeft(startedAt: number, budgetMs: number): number {
  */
 export async function readBody(
   res: Response,
-  { timeoutMs, maxBytes = MAX_BODY_BYTES }: { timeoutMs: number; maxBytes?: number },
+  opts: { timeoutMs: number; maxBytes?: number },
 ): Promise<string> {
-  if (!res.body) return '';
+  return (await readBodyInfo(res, opts)).text;
+}
+
+/** `readBody`, also saying whether the body was cut at the cap. */
+export async function readBodyInfo(
+  res: Response,
+  { timeoutMs, maxBytes = MAX_BODY_BYTES }: { timeoutMs: number; maxBytes?: number },
+): Promise<{ text: string; truncated: boolean }> {
+  if (!res.body) return { text: '', truncated: false };
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let text = '';
@@ -218,11 +226,11 @@ export async function readBody(
     for (;;) {
       const { done, value } = await reader.read();
       if (timedOut) throw new Error(`Body read timed out after ${timeoutMs}ms`);
-      if (done) return text + decoder.decode();
+      if (done) return { text: text + decoder.decode(), truncated: false };
       const room = maxBytes - bytes;
       if (value.byteLength >= room) {
         await reader.cancel().catch(() => {});
-        return text + decoder.decode(value.subarray(0, room));
+        return { text: text + decoder.decode(value.subarray(0, room)), truncated: true };
       }
       bytes += value.byteLength;
       text += decoder.decode(value, { stream: true });

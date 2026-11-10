@@ -101,7 +101,7 @@ export async function probeWithPrompts(
         snippet: cited ? findSnippet(text, variants) : null,
       });
     } catch {
-      results.push({ prompt, response: 'Error querying engine', cited: false, mentionedDomains: [], snippet: null });
+      // Not answered is not a miss: left out so an outage doesn't lower the citation rate.
     }
   }
 
@@ -145,7 +145,7 @@ export async function probeOpenAI(
         snippet: cited ? findSnippet(text, variants) : null,
       });
     } catch {
-      results.push({ prompt, response: 'Error querying engine', cited: false, mentionedDomains: [], snippet: null });
+      // Not answered is not a miss: left out so an outage doesn't lower the citation rate.
     }
   }
 
@@ -192,7 +192,7 @@ export async function probePerplexity(
         snippet: cited ? findSnippet(text, variants) : null,
       });
     } catch {
-      results.push({ prompt, response: 'Error querying engine', cited: false, mentionedDomains: [], snippet: null });
+      // Not answered is not a miss: left out so an outage doesn't lower the citation rate.
     }
   }
 
@@ -232,10 +232,7 @@ export async function probeGoogleAI(
       });
 
       const res = await fetch(`https://serpapi.com/search.json?${params.toString()}`);
-      if (!res.ok) {
-        results.push({ prompt, response: `SerpAPI error ${res.status}`, cited: false, mentionedDomains: [], snippet: null });
-        continue;
-      }
+      if (!res.ok) continue; // not answered: left out, as below
       const data = await res.json();
       
       // Log what SerpAPI returned for debugging
@@ -311,7 +308,7 @@ export async function probeGoogleAI(
         snippet: cited ? findSnippet(aiText, [domainLower, nameLower]) : null,
       });
     } catch {
-      results.push({ prompt, response: 'Error querying Google', cited: false, mentionedDomains: [], snippet: null });
+      // Not answered: left out, as for the other engines.
     }
   }
 
