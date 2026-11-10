@@ -9,7 +9,7 @@ import type { CrawlPage } from '@/types/audit';
 const MAX_PAGES = 200;
 /* Stop crawling before the platform kills the invocation. A crawl that runs out of
    time now returns what it has; it used to be killed mid-step, which skipped every
-   status write and left the audit in `processing` forever. See docs/audit/01-crawler.md F5. */
+   status write and left the audit in `processing` forever. */
 const CRAWL_BUDGET_MS = 240_000;
 
 async function generateSmartPrompts(pages: CrawlPage[], domain: string): Promise<{ companyName: string; industry: string; prompts: string[] }> {

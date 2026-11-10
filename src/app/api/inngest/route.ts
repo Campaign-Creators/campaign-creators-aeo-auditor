@@ -12,8 +12,6 @@ import { runAudit } from '@/lib/inngest/functions';
  * The crawl itself now stops at a budget below this ceiling (CRAWL_BUDGET_MS in
  * lib/inngest/functions.ts), so the step finishes on its own terms and stores
  * what it managed to read. This is the backstop, not the mechanism.
- *
- * See docs/audit/01-crawler.md F5.
  */
 export const maxDuration = 300;
 

@@ -3,8 +3,7 @@
 // Until now `upsertContact` PATCHed firstname, lastname, website and lifecyclestage onto
 // whatever contact matched the email — from a public, unauthenticated endpoint. A customer
 // who ran the free audit had their lifecycle stage reset to `lead`; anyone who knew a
-// contact's address could rewrite their name and website on purpose. See
-// docs/audit/03-hubspot.md H1 and M1.
+// contact's address could rewrite their name and website on purpose.
 //
 // The rule these tests hold in place: fill a blank, never replace a value.
 
@@ -48,6 +47,8 @@ const OFFERED = { firstname: 'Ada', lastname: 'Lovelace', website: 'example.com'
 beforeEach(() => {
   calls = [];
   vi.stubEnv('HUBSPOT_PRIVATE_APP_TOKEN', 'pat-test-token');
+  // CI sets AEO_HUBSPOT_SYNC=off as a safety net; these specs exercise the sync against a fake.
+  vi.stubEnv('AEO_HUBSPOT_SYNC', '');
 });
 
 afterEach(() => {

@@ -136,7 +136,7 @@ function deriveFindingsFromCrawl(input: RunScorersInput): RawFindings {
 
   // Both of the following were hardcoded — `sitemapListed: false` and `lastModified: null` —
   // which made 30 of scoreAiCrawler's 100 points unreachable and pinned every freshness score
-  // at 0. See docs/audit/01-crawler.md F1/F2 and docs/audit/02-grading.md G7.
+  // at 0.
   const sitemapListed = sitemapListsAuditedDomain(
     input.sitemapUrls ?? [],
     input.domainUrl,
