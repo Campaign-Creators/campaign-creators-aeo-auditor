@@ -103,6 +103,8 @@ export interface CrawlPage {
   /** ISO date from the Last-Modified header, page metadata or JSON-LD; null when the page publishes none. */
   lastModified: string | null;
   fetchError: string | null;
+  /** True when the page was longer than the body cap and only its start was read. */
+  truncated?: boolean;
 }
 
 export interface CrawlRobotsData {

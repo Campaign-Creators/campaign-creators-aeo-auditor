@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { OpenAIIcon, PerplexityIcon, GoogleAIIcon, ClaudeIcon } from '@/components/aeo/EngineIcons';
+import { engineBadge } from '@/lib/auditor/engineBadge';
 import styles from './AuditResultPage.module.css';
 
 interface ProbeResult {
@@ -19,6 +20,7 @@ interface AiProbe {
   citedCount: number;
   totalPrompts: number;
   status: 'cited' | 'partial' | 'missing';
+  failedPrompts?: number;
 }
 
 interface MultiEngineProbe {
@@ -92,8 +94,7 @@ function cleanMarkdown(text: string): string {
 }
 
 function compStatus(probe: AiProbe | null): string {
-  if (!probe || probe.results.length === 0) return 'COMING SOON';
-  return probe.status.toUpperCase();
+  return engineBadge(probe, 'COMING SOON');
 }
 
 type FindingItem = { pass: boolean; text: string } | { meta: string };
@@ -448,14 +449,11 @@ export default function AuditResultPage({ requestData, auditData, locked = false
       rate: totalAiPrompts > 0 ? count : 0,
     }));
 
-  const probeStatus = (probe: AiProbe | null): string => {
-    if (!probe) return 'PENDING';
-    if (probe.results.length === 0) return 'COMING SOON';
-    return probe.status.toUpperCase();
-  };
+  const probeStatus = (probe: AiProbe | null): string =>
+    probe ? engineBadge(probe, 'COMING SOON') : 'PENDING';
 
   const probeComingSoon = (probe: AiProbe | null): boolean =>
-    !probe || probe.results.length === 0;
+    !probe || (probe.results.length === 0 && !probe.failedPrompts);
 
   const engines = [
     { name: 'ChatGPT', bg: '#10A37F', icon: <OpenAIIcon size={16} />, probe: openaiProbe },

@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { reportAccess, unlockCookieName } from '@/lib/gate';
+import { engineBadge } from '@/lib/auditor/engineBadge';
 import styles from './pdf.module.css';
 
 export const dynamic = 'force-dynamic';
@@ -26,6 +27,7 @@ interface AiProbe {
   citedCount: number;
   totalPrompts: number;
   status: 'cited' | 'partial' | 'missing';
+  failedPrompts?: number;
 }
 
 interface MultiEngineProbe {
@@ -168,8 +170,7 @@ function engineBadgeClass(status: string): string {
 }
 
 function engineStatus(probe: AiProbe | null): string {
-  if (!probe || probe.results.length === 0) return 'PENDING';
-  return probe.status.toUpperCase();
+  return engineBadge(probe, 'PENDING');
 }
 
 function probeResultForPrompt(probe: AiProbe | null, prompt: string): boolean | null {
