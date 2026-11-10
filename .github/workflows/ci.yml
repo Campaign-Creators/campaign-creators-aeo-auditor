@@ -1,0 +1,32 @@
+name: CI
+
+# Typecheck and unit tests on every pull request to main. Read-only: no secrets, no
+# deploys, no writes. Tests mock every external service (engines, HubSpot, Supabase).
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx vitest run
+        env:
+          AEO_HUBSPOT_SYNC: 'off'
