@@ -14,21 +14,25 @@ Reference them with `var(--token)` — never hard-code a hex, px, or font name.
 
 ## a. Color system
 
+The palette is the Campaign Creators brand (CC Web UI Kit v2.0), as defined in
+`src/app/globals.css`. Prefer the short tokens (`--primary`, `--ink`, `--line`…);
+the `--color-*` names are aliases kept for older styles.
+
 | Role | Token | Value |
 |------|-------|-------|
-| Primary | `--color-primary` | `#2563eb` |
-| Primary (hover) | `--color-primary-hover` | `#2157cf` |
-| Primary (subtle bg) | `--color-primary-subtle` | `#e0e9fc` |
-| Secondary | `--color-secondary` | `#6366F1` |
-| Accent | `--color-accent` | `#EFF6FF` |
-| Background | `--color-background` | `#FFFFFF` |
-| Surface | `--color-surface` | `#F9FAFB` |
-| Surface (raised) | `--color-surface-2` | `#f0f1f3` |
-| Text | `--color-text` | `#111827` |
-| Text (secondary) | `--color-text-secondary` | `#5d626c` |
-| Text (muted) | `--color-text-muted` | `#94979e` |
-| Border | `--color-border` | `#dedfe1` |
-| Success / Warning / Error / Info | `--color-success` … | `#16a34a` / `#f59e0b` / `#dc2626` / `#2563eb` |
+| Primary (navy) | `--primary` / `--color-primary` | `#0E3860` |
+| Primary (hover, dark navy) | `--primary-700` | `#0C2237` |
+| Secondary (accent green) | `--secondary` / `--color-secondary` / `--color-accent` | `#35FFD8` |
+| Violet / Blue (brand extras) | `--color-violet` / `--color-blue` | `#8D11ED` / `#1084FF` |
+| Background | `--bg` / `--color-background` | `#FFFFFF` |
+| Surface | `--tint-1` / `--color-surface` | `#F8F9FC` |
+| Surface (raised) | `--color-surface-2` | `#F1F3F5` |
+| Text | `--ink` / `--color-text` | `#0C2237` |
+| Text (secondary) | `--ink-2` / `--color-text-secondary` | `#485059` |
+| Text (muted) | `--ink-3` / `--color-text-muted` | `#868E96` |
+| Border | `--line` / `--color-border` | `#DEE2E6` |
+| Border (strong) | `--line-strong` | `#CED4DA` |
+| Good / Warn / Bad | `--good` / `--warn` / `--bad` (`--color-error`) | `#35FFD8` / `#F59E0B` / `#EE3B27` |
 
 Primary is used for the main CTA, active states, and focus rings. Secondary and
 accent are supporting — never let them compete with primary. Status colors are
@@ -133,28 +137,13 @@ These are hard rules. Violating them breaks the archetype:
 
 ## Token reference
 
-Every CSS custom property in `app/globals.css`. This file and `globals.css`
-are generated together from the same archetype DNA — the values below match
-the `:root` block exactly. This is the authoritative token list.
+`src/app/globals.css` is the authoritative token list; when the two disagree,
+`globals.css` wins. Colour tokens are in section a. The non-colour rows below
+date from the original generated design and are kept for reference until they
+are re-checked against `globals.css`.
 
 | Token | Value |
 |-------|-------|
-| `--color-primary` | `#2563eb` |
-| `--color-primary-hover` | `#2157cf` |
-| `--color-primary-subtle` | `#e0e9fc` |
-| `--color-secondary` | `#6366F1` |
-| `--color-accent` | `#EFF6FF` |
-| `--color-background` | `#FFFFFF` |
-| `--color-surface` | `#F9FAFB` |
-| `--color-surface-2` | `#f0f1f3` |
-| `--color-text` | `#111827` |
-| `--color-text-secondary` | `#5d626c` |
-| `--color-text-muted` | `#94979e` |
-| `--color-border` | `#dedfe1` |
-| `--color-success` | `#16a34a` |
-| `--color-warning` | `#f59e0b` |
-| `--color-error` | `#dc2626` |
-| `--color-info` | `#2563eb` |
 | `--font-display` | `'Inter', system-ui, sans-serif` |
 | `--font-body` | `'Inter', system-ui, sans-serif` |
 | `--font-mono` | `'ui-monospace', ui-monospace, monospace` |
