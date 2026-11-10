@@ -5,6 +5,10 @@
 -- Apply BEFORE setting AEO_STAFF_EMAILS in any environment: with staff configured,
 -- the app writes requested_by = 'staff' on staff audits and counts only rows where
 -- requested_by IS NULL toward the daily cap. Without the column those queries fail.
+--
+-- Also before AEO_STAFF_EMAILS: in the Supabase project, turn off sign-ups, keep
+-- "Confirm email" on, and create each staff account (the app only accepts a
+-- confirmed address on the list).
 
 -- STEP 1 (read-only)
 --   begin read only;
