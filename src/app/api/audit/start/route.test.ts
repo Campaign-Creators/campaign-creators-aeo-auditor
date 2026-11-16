@@ -12,6 +12,12 @@ vi.mock('@/lib/staff', async (orig) => ({
   staffEmail: staffMock,
 }));
 
+const { reserveMock } = vi.hoisted(() => ({ reserveMock: vi.fn() }));
+vi.mock('@/lib/aiBudget', async (orig) => ({
+  ...(await orig<typeof import('@/lib/aiBudget')>()),
+  reserveAiCalls: reserveMock,
+}));
+
 vi.mock('@/lib/rateLimit', () => ({
   checkRateLimit: rateLimitMock,
   /* getClientIp moved into this module so both rate-limited routes bucket callers
@@ -62,6 +68,8 @@ beforeEach(() => {
   rateLimitMock.mockReset();
   supabaseInsertMock.mockReset();
   rateLimitMock.mockResolvedValue({ limited: false });
+  reserveMock.mockReset();
+  reserveMock.mockResolvedValue(null);
   supabaseInsertMock.mockReturnValue({ data: { id: 'audit-123' }, error: null });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://example.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key';
@@ -125,6 +133,35 @@ describe('POST /api/audit/start', () => {
     expect(res.status).toBe(500);
     const json = await res.json();
     expect(json).toEqual({ error: 'Database error' });
+  });
+});
+
+describe('POST /api/audit/start daily AI-call ceiling', () => {
+  it('reserves a whole audit\'s worth of paid calls before creating the audit', async () => {
+    const { POST } = await import('./route');
+    const res = await POST(makeRequest({ url: 'https://example.com' }));
+    expect(res.status).toBe(201);
+    expect(reserveMock).toHaveBeenCalledWith(41);
+  });
+
+  it('refuses with a plain message and creates nothing once the day is spent', async () => {
+    reserveMock.mockResolvedValue({
+      status: 503,
+      body: { error: 'Free audits have reached their limit for today. Please try again tomorrow.', code: 'AI_DAILY_LIMIT' },
+    });
+    const { POST } = await import('./route');
+    const res = await POST(makeRequest({ url: 'https://example.com' }));
+    expect(res.status).toBe(503);
+    expect((await res.json()).code).toBe('AI_DAILY_LIMIT');
+    expect(supabaseInsertMock).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('an invalid request spends nothing from the day', async () => {
+    const { POST } = await import('./route');
+    await POST(makeRequest({ url: 'http://10.0.0.1/admin' }));
+    await POST(makeRequest({ url: 'not-a-url' }));
+    expect(reserveMock).not.toHaveBeenCalled();
   });
 });
 
