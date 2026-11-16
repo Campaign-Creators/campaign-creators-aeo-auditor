@@ -26,6 +26,12 @@ const { db, probes } = vi.hoisted(() => ({
 
 vi.mock('@/lib/auditor/ai-probe', () => probes);
 
+const { reserveMock } = vi.hoisted(() => ({ reserveMock: vi.fn() }));
+vi.mock('@/lib/aiBudget', async (orig) => ({
+  ...(await orig<typeof import('@/lib/aiBudget')>()),
+  reserveAiCalls: reserveMock,
+}));
+
 type Filter = { col: string; op: 'eq' | 'gte'; val: unknown };
 
 function query(table: string) {
@@ -156,6 +162,8 @@ beforeEach(() => {
   }
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://example.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key';
+  reserveMock.mockReset();
+  reserveMock.mockResolvedValue(null);
   delete process.env.CUSTOM_PROMPTS_GLOBAL_MAX;
   delete process.env.AEO_GATE_MODE;
   delete process.env.AEO_UNLOCK_COOKIE_SECRET;
@@ -348,5 +356,33 @@ describe('POST /api/audit/[auditId]/custom-prompts', () => {
     const res = await call(AUDIT_ID);
     expect(res.status).toBe(503);
     expect(engineCalls()).toBe(0);
+  });
+});
+
+describe('custom prompts and the daily AI-call ceiling', () => {
+  it('reserves four engines × the number of questions before any engine runs', async () => {
+    addAudit(AUDIT_ID);
+    const res = await call(AUDIT_ID, undefined, ['one', 'two']);
+    expect(res.status).toBe(200);
+    expect(reserveMock).toHaveBeenCalledWith(8);
+  });
+
+  it('refuses with a plain message and calls no engine once the day is spent', async () => {
+    reserveMock.mockResolvedValue({
+      status: 503,
+      body: { error: 'Free audits have reached their limit for today. Please try again tomorrow.', code: 'AI_DAILY_LIMIT' },
+    });
+    addAudit(AUDIT_ID);
+    const res = await call(AUDIT_ID);
+    expect(res.status).toBe(503);
+    expect((await res.json()).code).toBe('AI_DAILY_LIMIT');
+    expect(engineCalls()).toBe(0);
+  });
+
+  it('stored results cost nothing from the day', async () => {
+    addAudit(AUDIT_ID);
+    db.results.set(AUDIT_ID, { raw_findings: { customProbe: { prompts: ['x'] } } });
+    await call(AUDIT_ID);
+    expect(reserveMock).not.toHaveBeenCalled();
   });
 });

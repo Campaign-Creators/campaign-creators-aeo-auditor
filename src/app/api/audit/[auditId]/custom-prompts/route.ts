@@ -9,6 +9,10 @@ import {
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { countTodaysAudits, reportAccess, runGate, unlockCookieName } from '@/lib/gate';
 import { staffList } from '@/lib/staff';
+import { reserveAiCalls } from '@/lib/aiBudget';
+
+/** Paid engines each question goes to. */
+const ENGINES = 4;
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -152,6 +156,10 @@ export async function POST(
     console.error('[custom-prompts] rate limit check failed; refusing the request:', err);
     return NextResponse.json({ error: 'Try again later' }, { status: 503 });
   }
+
+  // Last check before spending: the daily ceiling for all visitors together.
+  const overBudget = await reserveAiCalls(ENGINES * validPrompts.length);
+  if (overBudget) return NextResponse.json(overBudget.body, { status: overBudget.status });
 
   const domain = requestData.url as string;
   const companyName = domain

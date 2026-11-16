@@ -6,6 +6,7 @@ import { isBlockedHost } from '@/lib/safeFetch';
 import { inngest } from '@/lib/inngest/client';
 import { countTodaysAudits, pauseRefusal, runGate } from '@/lib/gate';
 import { staffEmail, staffList } from '@/lib/staff';
+import { AUDIT_AI_CALLS, reserveAiCalls } from '@/lib/aiBudget';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -106,6 +107,10 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     const normalizedUrl = normalizeUrl(parsed.data.url);
+
+    // Last check before an audit exists: the daily ceiling on paid AI calls, all visitors.
+    const overBudget = await reserveAiCalls(AUDIT_AI_CALLS, { staff });
+    if (overBudget) return NextResponse.json(overBudget.body, { status: overBudget.status });
 
     let auditId: string;
     try {
