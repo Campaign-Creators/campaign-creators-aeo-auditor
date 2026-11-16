@@ -15,19 +15,39 @@
 An engine whose key is missing, or which fails every question, is left out of the citation
 rate and shows as "coming soon" or "unavailable". It never counts as "not cited".
 
-## The gate (`AEO_GATE_MODE`)
+## Report access (`AEO_REPORT_GATE`)
+On by default. Without the per-audit unlock cookie, the report page, the status API and the
+print view send only the preview (overall score and grade, date, AI citation count; the
+status API also sends up to three short preview tips), and custom questions are refused. An unlock is accepted only for a finished audit with results,
+only with a real-looking work email (reserved example and test domains are refused), and
+writes nothing new when the same email unlocks the same audit again. One audit accepts at
+most five different emails. Staff unlock without the form (signed in, on
+`AEO_STAFF_EMAILS`); their unlock lasts the browser session. Anyone else who opens a report
+link, a CC rep from the CRM included, sees the preview until they unlock.
+
+| Value | What happens |
+|---|---|
+| unset / `enforce` / anything else | The rules above apply. |
+| `observe` | The rules are logged as `[gate] observe would-refuse REPORT_LOCKED` or `UNLOCK_NOT_READY`, and nothing is refused. |
+| `off` | Everyone gets the full report. The off switch, for an emergency. |
+
+The cookie is signed with `AEO_UNLOCK_COOKIE_SECRET` when it is set, otherwise with a key
+derived from the server's database key. Changing either key asks visitors to unlock again.
+
+## The run gate (`AEO_GATE_MODE`)
 | Mode | What happens |
 |---|---|
-| unset / `off` | Today's behaviour. Only `AEO_AUDITS_PAUSED=true` refuses anything. |
+| unset / `off` | Only `AEO_AUDITS_PAUSED=true` refuses anything. |
 | `observe` | Every rule is checked and logged as `[gate] observe would-refuse <CODE>`, together with `[gate] observe count <n>` (today's audits). Nothing is refused. |
-| `enforce` | The rules refuse: a full report, the print view and custom questions need the unlock cookie; unlocks need a finished audit; new audits stop at the daily cap. |
+| `enforce` | The rules refuse: new audits stop at the daily cap, on previews that share the database, and when required settings are missing. |
 
 Settings, all in Vercel → project → Settings → Environment Variables (the owner sets them):
 
 | Name | Purpose |
 |---|---|
-| `AEO_GATE_MODE` | `off` / `observe` / `enforce` |
-| `AEO_UNLOCK_COOKIE_SECRET` | Signs the per-audit unlock cookie. Without it, `enforce` refuses new audits (fails closed). |
+| `AEO_REPORT_GATE` | Report access: `enforce` (default) / `observe` / `off` |
+| `AEO_GATE_MODE` | Run gate: `off` (default) / `observe` / `enforce` |
+| `AEO_UNLOCK_COOKIE_SECRET` | Optional. Signs the per-audit unlock cookie; without it a derived key is used. |
 | `AEO_DAILY_AUDIT_CAP` | Audits per UTC day. Without it, `enforce` refuses new audits. |
 | `AEO_DAILY_AI_CALL_CAP` | Paid AI-engine calls per UTC day, all visitors together; always on, default 2000. An audit reserves 41, a custom-question run 4 per question. Staff are counted but not refused. Past it, new audits and custom questions get "Free audits have reached their limit for today" (`AI_DAILY_LIMIT` in the logs) until 00:00 UTC. If the count can't be read, nothing runs. |
 | `AEO_PREVIEW_DB_ISOLATED` | `true` only when a preview has its own database. Otherwise `enforce` refuses audits on previews. |
@@ -44,8 +64,8 @@ Refusal codes in the logs: `PAUSED`, `CONFIG_MISSING`, `PREVIEW_SHARED_DB`, `STA
   present or absent and the mode. It never prints a value.
 - Vercel → project → Logs, then search for `[gate]`.
 
-## Rolling out
-1. Set `AEO_GATE_MODE=observe`, the cookie secret and the cap on Production, then redeploy.
+## Rolling out the run gate
+1. Set `AEO_GATE_MODE=observe` and the cap on Production, then redeploy.
 2. After about a week, compare the `would-refuse` lines with real leads.
 3. With the owner's go, set `enforce`. To roll back, set `off`.
 

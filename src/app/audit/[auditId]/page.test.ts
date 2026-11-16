@@ -76,12 +76,12 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const k of ['AEO_GATE_MODE', 'AEO_UNLOCK_COOKIE_SECRET']) delete process.env[k];
+  for (const k of ['AEO_REPORT_GATE', 'AEO_UNLOCK_COOKIE_SECRET']) delete process.env[k];
 });
 
 describe('report data sent to the browser', () => {
   it('enforce without an unlock sends only the preview fields', async () => {
-    process.env.AEO_GATE_MODE = 'enforce';
+    process.env.AEO_REPORT_GATE = 'enforce';
     const p = await renderProps();
     const sent = JSON.stringify(p.auditData);
     expect(p.locked).toBe(true);
@@ -95,7 +95,7 @@ describe('report data sent to the browser', () => {
   });
 
   it('enforce with a valid unlock sends the full report', async () => {
-    process.env.AEO_GATE_MODE = 'enforce';
+    process.env.AEO_REPORT_GATE = 'enforce';
     const { unlockToken } = await import('@/lib/gate');
     cookieValue.v = unlockToken(AUDIT)!;
     const p = await renderProps();
@@ -103,8 +103,8 @@ describe('report data sent to the browser', () => {
     expect(JSON.stringify(p.auditData)).toContain('secret-page');
   });
 
-  it('enforce with no cookie secret configured fails closed', async () => {
-    process.env.AEO_GATE_MODE = 'enforce';
+  it('enforce with a forged cookie and no dedicated key stays locked', async () => {
+    process.env.AEO_REPORT_GATE = 'enforce';
     delete process.env.AEO_UNLOCK_COOKIE_SECRET;
     cookieValue.v = 'anything';
     const p = await renderProps();
@@ -112,7 +112,7 @@ describe('report data sent to the browser', () => {
   });
 
   it('observe sends the full report', async () => {
-    process.env.AEO_GATE_MODE = 'observe';
+    process.env.AEO_REPORT_GATE = 'observe';
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const p = await renderProps();
     expect(p.locked).toBe(false);
@@ -121,7 +121,14 @@ describe('report data sent to the browser', () => {
     log.mockRestore();
   });
 
-  it('off (unset) sends the full report', async () => {
+  it('unset is enforce: no unlock, preview only', async () => {
+    const p = await renderProps();
+    expect(p.locked).toBe(true);
+    expect(JSON.stringify(p.auditData)).not.toContain('secret-page');
+  });
+
+  it('off sends the full report', async () => {
+    process.env.AEO_REPORT_GATE = 'off';
     const p = await renderProps();
     expect(p.locked).toBe(false);
     expect(JSON.stringify(p.auditData)).toContain('secret-page');

@@ -5,7 +5,7 @@
 import { pathToFileURL } from 'node:url';
 
 const NAMES = [
-  'AEO_GATE_MODE', 'AEO_AUDITS_PAUSED', 'AEO_PREVIEW_DB_ISOLATED', 'AEO_PUBLIC_ACCESS',
+  'AEO_GATE_MODE', 'AEO_REPORT_GATE', 'AEO_AUDITS_PAUSED', 'AEO_PREVIEW_DB_ISOLATED', 'AEO_PUBLIC_ACCESS',
   'AEO_DAILY_AUDIT_CAP', 'AEO_UNLOCK_COOKIE_SECRET', 'AEO_STAFF_EMAILS', 'AEO_HUBSPOT_SYNC',
   'NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'ANTHROPIC_API_KEY',
   'INNGEST_EVENT_KEY', 'INTERNAL_CRAWLER_SECRET', 'HUBSPOT_PRIVATE_APP_TOKEN', 'VERCEL_ENV',
@@ -15,9 +15,11 @@ const NAMES = [
 export function report(env) {
   const m = String(env.AEO_GATE_MODE ?? '').trim().toLowerCase();
   const mode = m === 'observe' || m === 'enforce' ? m : 'off';
+  const r = String(env.AEO_REPORT_GATE ?? '').trim().toLowerCase();
+  const reportGate = r === 'off' || r === 'observe' ? r : 'enforce';
   const width = Math.max(...NAMES.map(n => n.length));
   const lines = NAMES.map(n => `${n.padEnd(width)}  ${String(env[n] ?? '').trim() ? 'present' : 'absent'}`);
-  return [`mode: ${mode}`, ...lines].join('\n');
+  return [`mode: ${mode}`, `report gate: ${reportGate}`, ...lines].join('\n');
 }
 
 async function todaysCount(env) {

@@ -44,24 +44,30 @@ beforeEach(() => {
   process.env.AEO_UNLOCK_COOKIE_SECRET = 'test-value';
   vi.spyOn(console, 'log').mockImplementation(() => {});
 });
-afterEach(() => { delete process.env.AEO_GATE_MODE; delete process.env.AEO_UNLOCK_COOKIE_SECRET; });
+afterEach(() => { delete process.env.AEO_REPORT_GATE; delete process.env.AEO_UNLOCK_COOKIE_SECRET; });
 
 describe('GET /api/audit/[auditId]/status', () => {
   it('enforce without an unlock returns only the overall score', async () => {
-    process.env.AEO_GATE_MODE = 'enforce';
+    process.env.AEO_REPORT_GATE = 'enforce';
     const body = await get();
     expect(body.status).toBe('complete');
     expect(body.categories).toEqual({ overall: { score: 61, grade: 'B' } });
   });
 
   it('enforce with the unlock cookie returns every category', async () => {
-    process.env.AEO_GATE_MODE = 'enforce';
+    process.env.AEO_REPORT_GATE = 'enforce';
     const { unlockToken, unlockCookieName } = await import('@/lib/gate');
     const body = await get(`${unlockCookieName(AUDIT)}=${unlockToken(AUDIT)}`);
     expect(body.categories.trust).toEqual({ score: 53, grade: 'C' });
   });
 
-  it('off returns every category, as today', async () => {
+  it('unset is enforce: only the overall score', async () => {
+    const body = await get();
+    expect(body.categories).toEqual({ overall: { score: 61, grade: 'B' } });
+  });
+
+  it('off returns every category', async () => {
+    process.env.AEO_REPORT_GATE = 'off';
     const body = await get();
     expect(body.categories.trust).toEqual({ score: 53, grade: 'C' });
   });

@@ -16,6 +16,13 @@ describe('npm run gate:check', () => {
     expect(out).not.toContain('50');
   });
 
+  it('prints the report gate on its own line: enforce unless off or observe', () => {
+    expect(report({})).toContain('report gate: enforce');
+    expect(report({ AEO_REPORT_GATE: 'off' })).toContain('report gate: off');
+    expect(report({ AEO_REPORT_GATE: 'nonsense' })).toContain('report gate: enforce');
+    expect(report({ AEO_REPORT_GATE: 'off' })).toMatch(/AEO_REPORT_GATE\s+present/);
+  });
+
   it('an unset or unknown mode reads as off', () => {
     expect(report({})).toContain('mode: off');
     expect(report({ AEO_GATE_MODE: 'on' })).toContain('mode: off');

@@ -35,7 +35,7 @@ vi.mock('@supabase/supabase-js', () => ({
 }));
 
 const AUDIT = '11111111-1111-4111-8111-111111111111';
-const ENV_KEYS = ['AEO_GATE_MODE', 'AEO_UNLOCK_COOKIE_SECRET', 'NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
+const ENV_KEYS = ['AEO_REPORT_GATE', 'AEO_UNLOCK_COOKIE_SECRET', 'NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
 
 async function render(): Promise<string> {
   const { default: Page } = await import('./page');
@@ -57,7 +57,7 @@ afterEach(() => {
 
 describe('print report access', () => {
   it('enforce without an unlock returns no report detail', async () => {
-    process.env.AEO_GATE_MODE = 'enforce';
+    process.env.AEO_REPORT_GATE = 'enforce';
     const html = await render();
     expect(html).not.toContain('secret-page');
     expect(html).not.toContain('robots.txt allows AI bots');
@@ -65,7 +65,7 @@ describe('print report access', () => {
   });
 
   it('enforce with a valid unlock returns the report', async () => {
-    process.env.AEO_GATE_MODE = 'enforce';
+    process.env.AEO_REPORT_GATE = 'enforce';
     const { unlockToken } = await import('@/lib/gate');
     cookieValue.v = unlockToken(AUDIT)!;
     const html = await render();
@@ -73,14 +73,14 @@ describe('print report access', () => {
   });
 
   it('enforce with a forged cookie returns no report detail', async () => {
-    process.env.AEO_GATE_MODE = 'enforce';
+    process.env.AEO_REPORT_GATE = 'enforce';
     cookieValue.v = 'forged';
     const html = await render();
     expect(html).not.toContain('robots.txt allows AI bots');
   });
 
   it('observe still returns the report and logs a would-refuse', async () => {
-    process.env.AEO_GATE_MODE = 'observe';
+    process.env.AEO_REPORT_GATE = 'observe';
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const html = await render();
     expect(html).toContain('robots.txt allows AI bots');
@@ -88,7 +88,14 @@ describe('print report access', () => {
     log.mockRestore();
   });
 
-  it('off (unset) keeps today\'s behaviour', async () => {
+  it('unset is enforce: no unlock, no report detail', async () => {
+    const html = await render();
+    expect(html).not.toContain('robots.txt allows AI bots');
+    expect(html).not.toContain('secret-page');
+  });
+
+  it('off returns the report', async () => {
+    process.env.AEO_REPORT_GATE = 'off';
     const html = await render();
     expect(html).toContain('robots.txt allows AI bots');
   });

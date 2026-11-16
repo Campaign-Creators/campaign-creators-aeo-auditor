@@ -1,9 +1,12 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, hkdfSync, timingSafeEqual } from 'node:crypto';
 
 /**
- * Access and run gate. Ships dark: AEO_GATE_MODE unset (or anything unknown) is `off`,
- * which keeps today's behaviour. `observe` evaluates every rule and logs what it would
- * refuse, refusing nothing; `enforce` refuses. Log lines: `[gate] <mode> <decision> <CODE>`.
+ * Access and run gate, two independent switches.
+ * - Report access (who sees the full report, and which audits accept an unlock):
+ *   AEO_REPORT_GATE, `enforce` unless set to `off` or `observe`.
+ * - Run gate (who may start an audit): AEO_GATE_MODE, unset or unknown is `off`.
+ * `observe` evaluates every rule and logs what it would refuse, refusing nothing;
+ * `enforce` refuses. Log lines: `[gate] <mode> <decision> <CODE>`.
  */
 export type GateMode = 'off' | 'observe' | 'enforce';
 type Decision = 'refuse' | 'would-refuse';
@@ -23,11 +26,30 @@ export function unlockCookieName(auditId: string): string {
   return `aeo_unlock_${auditId}`;
 }
 
-/** The signed proof that this browser unlocked this audit; null when no secret is set. */
+/** The report-access switch. Anything other than `off` or `observe` is `enforce`. */
+export function reportGateMode(): GateMode {
+  const m = (process.env.AEO_REPORT_GATE ?? '').trim().toLowerCase();
+  return m === 'off' || m === 'observe' ? m : 'enforce';
+}
+
+/**
+ * The key that signs unlock proofs: AEO_UNLOCK_COOKIE_SECRET when set, otherwise a key
+ * derived (HKDF, own label) from the server key the app already needs, so the gate works
+ * with no extra setting. Rotating either key re-locks reports until the visitor unlocks again.
+ */
+function unlockKey(): Buffer | string | null {
+  const dedicated = (process.env.AEO_UNLOCK_COOKIE_SECRET ?? '').trim();
+  if (dedicated) return dedicated;
+  const server = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').trim();
+  if (!server) return null;
+  return Buffer.from(hkdfSync('sha256', server, 'aeo-auditor', 'unlock-proof-v1', 32));
+}
+
+/** The signed proof that this browser unlocked this audit; null when no key is available. */
 export function unlockToken(auditId: string): string | null {
-  const secret = (process.env.AEO_UNLOCK_COOKIE_SECRET ?? '').trim();
-  if (!secret) return null;
-  return createHmac('sha256', secret).update(`unlock:${auditId}`).digest('base64url');
+  const key = unlockKey();
+  if (!key) return null;
+  return createHmac('sha256', key).update(`unlock:${auditId}`).digest('base64url');
 }
 
 function hasUnlockProof(auditId: string, value: string | undefined): boolean {
@@ -40,7 +62,7 @@ function hasUnlockProof(auditId: string, value: string | undefined): boolean {
 
 /** 'full' or 'preview' for this viewer. Only `enforce` ever returns 'preview'. */
 export function reportAccess(auditId: string, cookieValue: string | undefined): 'full' | 'preview' {
-  const mode = gateMode();
+  const mode = reportGateMode();
   if (mode === 'off' || hasUnlockProof(auditId, cookieValue)) return 'full';
   logGate(mode, mode === 'enforce' ? 'refuse' : 'would-refuse', 'REPORT_LOCKED', auditId);
   return mode === 'enforce' ? 'preview' : 'full';
@@ -99,7 +121,7 @@ export function redactForPreview<T extends Record<string, unknown>>(audit: T): T
 /** An unlock is accepted only for a finished audit with results. Returns a refusal or null. */
 export function unlockRefusal(auditId: string, status: string | undefined, hasResult: boolean):
   { status: number; body: { error: string; code: string } } | null {
-  const mode = gateMode();
+  const mode = reportGateMode();
   if (mode === 'off' || (status === 'complete' && hasResult)) return null;
   logGate(mode, mode === 'enforce' ? 'refuse' : 'would-refuse', 'UNLOCK_NOT_READY', auditId);
   return mode === 'enforce'
@@ -160,9 +182,7 @@ async function firstFailingRule(countToday: () => Promise<number>, mode: GateMod
   const env = process.env;
   const has = (k: string) => !!(env[k] ?? '').trim();
   if (!has('NEXT_PUBLIC_SUPABASE_URL') || !has('SUPABASE_SERVICE_ROLE_KEY') || !has('ANTHROPIC_API_KEY')
-    || !(has('INNGEST_EVENT_KEY') || has('INTERNAL_CRAWLER_SECRET'))
-    // Without it no visitor can ever unlock, so enforce would show previews only.
-    || !has('AEO_UNLOCK_COOKIE_SECRET')) return 'CONFIG_MISSING';
+    || !(has('INNGEST_EVENT_KEY') || has('INTERNAL_CRAWLER_SECRET'))) return 'CONFIG_MISSING';
   if (env.VERCEL_ENV !== 'production' && (env.AEO_PREVIEW_DB_ISOLATED ?? '').trim() !== 'true') return 'PREVIEW_SHARED_DB';
   if (staff) return null;
   if ((env.AEO_PUBLIC_ACCESS ?? '').trim() === 'staff_only') return 'STAFF_ONLY';
