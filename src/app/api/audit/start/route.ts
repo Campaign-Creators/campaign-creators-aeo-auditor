@@ -109,7 +109,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     const normalizedUrl = normalizeUrl(parsed.data.url);
 
     // Last check before an audit exists: the daily ceiling on paid AI calls, all visitors.
-    const overBudget = await reserveAiCalls(AUDIT_AI_CALLS);
+    const overBudget = await reserveAiCalls(AUDIT_AI_CALLS, { staff });
     if (overBudget) return NextResponse.json(overBudget.body, { status: overBudget.status });
 
     let auditId: string;

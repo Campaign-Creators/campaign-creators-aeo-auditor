@@ -29,7 +29,7 @@ Settings, all in Vercel → project → Settings → Environment Variables (the 
 | `AEO_GATE_MODE` | `off` / `observe` / `enforce` |
 | `AEO_UNLOCK_COOKIE_SECRET` | Signs the per-audit unlock cookie. Without it, `enforce` refuses new audits (fails closed). |
 | `AEO_DAILY_AUDIT_CAP` | Audits per UTC day. Without it, `enforce` refuses new audits. |
-| `AEO_DAILY_AI_CALL_CAP` | Paid AI-engine calls per UTC day, all visitors together; always on, default 2000. An audit reserves 41, a custom-question run 4 per question. Past it, new audits and custom questions get "Free audits have reached their limit for today" (`AI_DAILY_LIMIT` in the logs). If the count can't be read, nothing runs. |
+| `AEO_DAILY_AI_CALL_CAP` | Paid AI-engine calls per UTC day, all visitors together; always on, default 2000. An audit reserves 41, a custom-question run 4 per question. Staff are counted but not refused. Past it, new audits and custom questions get "Free audits have reached their limit for today" (`AI_DAILY_LIMIT` in the logs) until 00:00 UTC. If the count can't be read, nothing runs. |
 | `AEO_PREVIEW_DB_ISOLATED` | `true` only when a preview has its own database. Otherwise `enforce` refuses audits on previews. |
 | `AEO_AUDITS_PAUSED` | `true` stops new audits and custom questions in every mode. |
 | `AEO_PUBLIC_ACCESS` | `staff_only` refuses every public audit. Never set it on production. |

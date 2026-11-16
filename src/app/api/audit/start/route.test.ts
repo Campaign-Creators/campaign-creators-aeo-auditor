@@ -141,13 +141,20 @@ describe('POST /api/audit/start daily AI-call ceiling', () => {
     const { POST } = await import('./route');
     const res = await POST(makeRequest({ url: 'https://example.com' }));
     expect(res.status).toBe(201);
-    expect(reserveMock).toHaveBeenCalledWith(41);
+    expect(reserveMock).toHaveBeenCalledWith(41, { staff: false });
+  });
+
+  it('staff are recorded but not refused by the ceiling', async () => {
+    staffMock.mockResolvedValueOnce('staff@example.com');
+    const { POST } = await import('./route');
+    await POST(makeRequest({ url: 'https://example.com' }));
+    expect(reserveMock).toHaveBeenCalledWith(41, { staff: true });
   });
 
   it('refuses with a plain message and creates nothing once the day is spent', async () => {
     reserveMock.mockResolvedValue({
       status: 503,
-      body: { error: 'Free audits have reached their limit for today. Please try again tomorrow.', code: 'AI_DAILY_LIMIT' },
+      body: { error: 'Free audits have reached their limit for today. Please try again later.', code: 'AI_DAILY_LIMIT' },
     });
     const { POST } = await import('./route');
     const res = await POST(makeRequest({ url: 'https://example.com' }));

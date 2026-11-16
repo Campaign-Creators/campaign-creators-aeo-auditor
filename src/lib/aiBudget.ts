@@ -14,14 +14,20 @@ export const AUDIT_AI_CALLS = 41;
 /** About 48 full audits a day. Changing it is a cost decision. */
 export const DEFAULT_DAILY_AI_CALLS = 2000;
 
-/** Rows in the shared limiter table, one per call, under this key. */
-const KEY = 'ai-calls';
+/**
+ * One row per reservation in the shared limiter table, its size in the key
+ * (`ai-calls:<n>`), so the table grows by reservations, not by calls.
+ */
+const PREFIX = 'ai-calls:';
+
+/** Rows read per count. More reservations than this in a day fails closed. */
+export const MAX_ROWS_READ = 1000;
 
 export type AiBudgetRefusal = { status: number; body: { error: string; code: string } };
 
 const REFUSAL: AiBudgetRefusal = {
   status: 503,
-  body: { error: 'Free audits have reached their limit for today. Please try again tomorrow.', code: 'AI_DAILY_LIMIT' },
+  body: { error: 'Free audits have reached their limit for today. Please try again later.', code: 'AI_DAILY_LIMIT' },
 };
 
 export function dailyAiCallCap(): number {
@@ -34,28 +40,40 @@ export function dailyAiCallCap(): number {
  * Reserve `calls` paid calls for today, then count. Recording first means requests that
  * arrive together can't all see a count taken before any was recorded; the price is that
  * a refused request still uses its share, which only matters once the day is spent anyway.
+ * Staff are recorded, so the count stays true, but never refused.
  * Returns null when the calls may go ahead, or the refusal to send.
  */
-export async function reserveAiCalls(calls: number): Promise<AiBudgetRefusal | null> {
+export async function reserveAiCalls(
+  calls: number,
+  { staff = false }: { staff?: boolean } = {},
+): Promise<AiBudgetRefusal | null> {
   try {
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!.trim(),
       process.env.SUPABASE_SERVICE_ROLE_KEY!.trim(),
       { auth: { autoRefreshToken: false, persistSession: false } },
     );
-    const now = new Date().toISOString();
-    const rows = Array.from({ length: Math.max(1, calls) }, () => ({ ip: KEY, created_at: now }));
-    const { error: insertError } = await supabase.from('audit_rate_limits').insert(rows);
-    if (insertError) throw insertError;
-
-    const { count, error: countError } = await supabase
+    const size = Math.min(AUDIT_AI_CALLS, Math.max(1, Math.floor(calls)));
+    const { error: insertError } = await supabase
       .from('audit_rate_limits')
-      .select('*', { count: 'exact', head: true })
-      .eq('ip', KEY)
-      .gte('created_at', startOfUtcDay());
-    if (countError) throw countError;
+      .insert({ ip: `${PREFIX}${size}`, created_at: new Date().toISOString() });
+    if (insertError) throw insertError;
+    if (staff) return null;
 
-    if ((count ?? 0) > dailyAiCallCap()) {
+    const { data, error: countError } = await supabase
+      .from('audit_rate_limits')
+      .select('ip')
+      .like('ip', `${PREFIX}%`)
+      .gte('created_at', startOfUtcDay())
+      .limit(MAX_ROWS_READ);
+    if (countError) throw countError;
+    const rows = (data ?? []) as Array<{ ip: string }>;
+    if (rows.length >= MAX_ROWS_READ) throw new Error('too many reservations to count');
+
+    // No real reservation is larger than an audit, so no row counts for more.
+    const size_ = (r: { ip: string }) => Math.min(AUDIT_AI_CALLS, Math.max(0, Number(r.ip.slice(PREFIX.length)) || 0));
+    const spent = rows.reduce((sum, r) => sum + size_(r), 0);
+    if (spent > dailyAiCallCap()) {
       console.log('[ai-budget] daily limit reached');
       return REFUSAL;
     }

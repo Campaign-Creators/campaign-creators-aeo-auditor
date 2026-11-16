@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const { db } = vi.hoisted(() => ({
-  db: { rows: [] as Array<{ ip: string; created_at: string }>, failInsert: false, failCount: false },
+  db: { rows: [] as Array<{ ip: string; created_at: string }>, failInsert: false, failCount: false, inserts: 0 },
 }));
 
 vi.mock('@supabase/supabase-js', () => ({
@@ -9,14 +9,23 @@ vi.mock('@supabase/supabase-js', () => ({
     from: () => ({
       insert: async (rows: Array<{ ip: string; created_at: string }> | { ip: string; created_at: string }) => {
         if (db.failInsert) return { error: { message: 'down' } };
+        db.inserts += 1;
         db.rows.push(...(Array.isArray(rows) ? rows : [rows]));
         return { error: null };
       },
       select: () => ({
-        eq: (_c: string, key: string) => ({
-          gte: async (_c2: string, since: string) => db.failCount
-            ? { count: null, error: { message: 'down' } }
-            : { count: db.rows.filter(r => r.ip === key && r.created_at >= since).length, error: null },
+        like: (_c: string, pattern: string) => ({
+          gte: (_c2: string, since: string) => ({
+            limit: async (n: number) => db.failCount
+              ? { data: null, error: { message: 'down' } }
+              : {
+                data: db.rows
+                  .filter(r => r.ip.startsWith(pattern.replace(/%$/, '')) && r.created_at >= since)
+                  .slice(0, n)
+                  .map(r => ({ ip: r.ip })),
+                error: null,
+              },
+          }),
         }),
       }),
     }),
@@ -28,6 +37,7 @@ beforeEach(() => {
   db.rows = [];
   db.failInsert = false;
   db.failCount = false;
+  db.inserts = 0;
   delete process.env.AEO_DAILY_AI_CALL_CAP;
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://db.test';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'k';
@@ -46,7 +56,7 @@ describe('daily ceiling on paid AI-engine calls, all visitors together', () => {
     expect(refused?.status).toBe(503);
     expect(refused?.body.code).toBe('AI_DAILY_LIMIT');
     expect(refused?.body.error).toMatch(/today/i);
-    expect(refused?.body.error).not.toMatch(/AI_|cap|budget/i);
+    expect(refused?.body.error).not.toMatch(/AI_|cap|budget|tomorrow/i);
   });
 
   it('a request that fits exactly is allowed', async () => {
@@ -56,11 +66,41 @@ describe('daily ceiling on paid AI-engine calls, all visitors together', () => {
     expect(await reserveAiCalls(1)).not.toBeNull();
   });
 
+  it('one reservation is one row, whatever its size', async () => {
+    const { reserveAiCalls } = await import('./aiBudget');
+    await reserveAiCalls(41);
+    expect(db.rows).toHaveLength(1);
+  });
+
   it('counts only today (UTC)', async () => {
     process.env.AEO_DAILY_AI_CALL_CAP = '10';
     const { reserveAiCalls } = await import('./aiBudget');
-    db.rows.push(...Array.from({ length: 10 }, () => ({ ip: 'ai-calls', created_at: '2020-01-01T00:00:00.000Z' })));
+    db.rows.push({ ip: 'ai-calls:10', created_at: '2020-01-01T00:00:00.000Z' });
     expect(await reserveAiCalls(10)).toBeNull();
+  });
+
+  it('other limiter keys never count', async () => {
+    process.env.AEO_DAILY_AI_CALL_CAP = '10';
+    const { reserveAiCalls } = await import('./aiBudget');
+    const now = new Date().toISOString();
+    db.rows.push({ ip: '203.0.113.7', created_at: now }, { ip: 'custom-global', created_at: now });
+    expect(await reserveAiCalls(10)).toBeNull();
+  });
+
+  it('a row never counts for more than the largest real reservation', async () => {
+    process.env.AEO_DAILY_AI_CALL_CAP = '100';
+    const { reserveAiCalls } = await import('./aiBudget');
+    db.rows.push({ ip: 'ai-calls:999999', created_at: new Date().toISOString() });
+    expect(await reserveAiCalls(41)).toBeNull();
+  });
+
+  it('staff are recorded but never refused', async () => {
+    process.env.AEO_DAILY_AI_CALL_CAP = '10';
+    const { reserveAiCalls } = await import('./aiBudget');
+    expect(await reserveAiCalls(10)).toBeNull();
+    expect(await reserveAiCalls(41, { staff: true })).toBeNull();
+    expect(db.rows).toHaveLength(2);
+    expect(await reserveAiCalls(1)).not.toBeNull();
   });
 
   it('has a default ceiling when none is set, and ignores unusable values', async () => {
@@ -84,6 +124,14 @@ describe('daily ceiling on paid AI-engine calls, all visitors together', () => {
   it('fails closed when the count cannot be read', async () => {
     db.failCount = true;
     const { reserveAiCalls } = await import('./aiBudget');
+    expect((await reserveAiCalls(1))?.status).toBe(503);
+  });
+
+  it('fails closed when there are more reservations today than one read returns', async () => {
+    process.env.AEO_DAILY_AI_CALL_CAP = '100000';
+    const { reserveAiCalls, MAX_ROWS_READ } = await import('./aiBudget');
+    const now = new Date().toISOString();
+    db.rows.push(...Array.from({ length: MAX_ROWS_READ }, () => ({ ip: 'ai-calls:1', created_at: now })));
     expect((await reserveAiCalls(1))?.status).toBe(503);
   });
 
