@@ -26,9 +26,10 @@ security issues in code, comments, tests, commits, PRs or docs. Use neutral word
 - `supabase/migrations/` (applied by hand, in order); `supabase/drafts/` are not applied.
 
 ## Rules
-- The gate ships dark: `AEO_GATE_MODE` unset means off (today's behaviour); `observe` logs
-  `[gate] observe ...` lines and refuses nothing; `enforce` refuses. Gate env values in
-  Vercel are set by the owner, never by an agent.
+- Two switches. Report access (`AEO_REPORT_GATE`) is on unless set to `off` or `observe`.
+  The run gate (`AEO_GATE_MODE`) is off unless set; `observe` logs `[gate] observe ...`
+  lines and refuses nothing; `enforce` refuses. Gate env values in Vercel are set by the
+  owner, never by an agent.
 - Previews use the production database and HubSpot (docs/deploy.md): never submit the
   audit or unlock forms on a preview. Tests mock every external service.
 - Migrations alter in place: `IF NOT EXISTS`, no `DROP`.

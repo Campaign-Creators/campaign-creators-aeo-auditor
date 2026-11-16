@@ -17,10 +17,27 @@ function getSupabase() {
   );
 }
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Domains reserved for examples and testing (RFC 2606 / 6761): never a real contact. */
+function isReservedEmailDomain(email: string): boolean {
+  const domain = email.slice(email.lastIndexOf('@') + 1);
+  const labels = domain.split('.');
+  const tld = labels.at(-1) ?? '';
+  if (['test', 'example', 'invalid', 'localhost'].includes(tld)) return true;
+  const base = labels.slice(-2).join('.');
+  return ['example.com', 'example.net', 'example.org'].includes(base);
+}
+
 const unlockSchema = z.object({
   name: z.string().trim().min(1).max(100),
-  email: z.string().trim().toLowerCase().max(254).email(),
+  email: z.string().trim().toLowerCase().max(254).email()
+    .refine(e => !isReservedEmailDomain(e), { message: 'Enter your work email.' }),
 });
+
+/** Distinct emails one audit accepts. A shared report gets a few readers, not dozens. */
+const LEADS_PER_AUDIT_MAX = 5;
 
 // Engine display names for HubSpot properties
 const ENGINE_NAMES: Record<string, string> = {
@@ -82,6 +99,10 @@ export async function POST(
     console.error('[unlock] rate limit check failed; allowing the request:', err);
   }
 
+  if (!UUID_REGEX.test(auditId)) {
+    return NextResponse.json({ error: 'Invalid auditId' }, { status: 400 });
+  }
+
   // Staff (FR-014) see the full report without the form: no lead, no CRM sync.
   const staff = await staffEmail(request);
 
@@ -132,7 +153,21 @@ export async function POST(
     return withUnlockProof(NextResponse.json({ success: true, staff: true }), auditId);
   }
 
-  // ── 1. Save lead to Supabase ──────────────────────────────────────────
+  // ── 1. Known reader, or room for a new one ───────────────────────────
+  const seen = await existingLeads(supabase, auditId, email);
+  if (seen?.sameEmail) {
+    // Already captured: unlock again without a second write or CRM call.
+    return withUnlockProof(NextResponse.json({ success: true }), auditId);
+  }
+  if (seen && seen.total >= LEADS_PER_AUDIT_MAX) {
+    console.log('[unlock] lead limit reached for audit', auditId);
+    return NextResponse.json(
+      { error: 'This report has reached its limit of readers. Run your own free audit instead.' },
+      { status: 429 },
+    );
+  }
+
+  // ── 2. Save lead to Supabase ──────────────────────────────────────────
   const { error: leadError } = await supabase.from('leads').upsert(
     {
       audit_request_id: auditId,
@@ -161,7 +196,7 @@ export async function POST(
      Supabase and the contact is in HubSpot; the log only needs to say which audit. */
   console.log('LEAD_CAPTURED:', JSON.stringify({ auditId }));
 
-  // ── 2. Sync to HubSpot (async, non-blocking) ─────────────────────────
+  // ── 3. Sync to HubSpot (async, non-blocking) ─────────────────────────
   // Fire-and-forget so the user isn't waiting on HubSpot
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://aeo.campaigncreators.com').replace(/\/$/, '');
 
@@ -231,7 +266,30 @@ export async function POST(
   return withUnlockProof(NextResponse.json({ success: true }), auditId);
 }
 
-/** Sets the signed per-audit unlock cookie when a cookie key is configured. */
+type CountQuery = PromiseLike<{ count: number | null; error: unknown }> & { eq(c: string, v: string): CountQuery };
+
+/**
+ * This audit's lead count and whether this email is already one of them. Null when the
+ * lookup fails: the caller then writes the lead as before (the write is idempotent), since
+ * a dropped capture costs more than a duplicate check.
+ */
+async function existingLeads(
+  supabase: ReturnType<typeof getSupabase>,
+  auditId: string,
+  email: string,
+): Promise<{ total: number; sameEmail: boolean } | null> {
+  const forAudit = () => (supabase.from('leads')
+    .select('id', { count: 'exact', head: true }) as unknown as CountQuery)
+    .eq('audit_request_id', auditId);
+  const [all, same] = await Promise.all([forAudit(), forAudit().eq('email', email)]);
+  if (all.error || same.error) {
+    console.error('[unlock] lead lookup failed; writing the lead anyway');
+    return null;
+  }
+  return { total: all.count ?? 0, sameEmail: (same.count ?? 0) > 0 };
+}
+
+/** Sets the signed per-audit unlock cookie when a cookie key is available. */
 function withUnlockProof(res: NextResponse, auditId: string): NextResponse {
   const proof = unlockToken(auditId);
   if (proof) {

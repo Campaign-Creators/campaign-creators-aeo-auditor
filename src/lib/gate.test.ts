@@ -52,10 +52,10 @@ describe('run gate', () => {
     expect((await runGate(async () => 0))?.body.code).toBe('CONFIG_MISSING');
   });
 
-  it('rule 2: no unlock cookie key counts as missing config', async () => {
+  it('rule 2: no dedicated unlock key is fine (the proof key is derived)', async () => {
     healthy('enforce');
     delete process.env.AEO_UNLOCK_COOKIE_SECRET;
-    expect((await runGate(async () => 0))?.body.code).toBe('CONFIG_MISSING');
+    expect(await runGate(async () => 0)).toBeNull();
   });
 
   it('rule 2: the crawler fallback counts in place of the queue key', async () => {

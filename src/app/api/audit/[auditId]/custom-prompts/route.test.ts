@@ -159,6 +159,8 @@ beforeEach(() => {
   delete process.env.CUSTOM_PROMPTS_GLOBAL_MAX;
   delete process.env.AEO_GATE_MODE;
   delete process.env.AEO_UNLOCK_COOKIE_SECRET;
+  // The budget specs below are about spending, not access; access has its own block.
+  process.env.AEO_REPORT_GATE = 'off';
 });
 
 describe('custom prompts follow report access', () => {
@@ -170,7 +172,7 @@ describe('custom prompts follow report access', () => {
 
   beforeEach(() => {
     process.env.AEO_GATE_MODE = 'enforce';
-    process.env.AEO_UNLOCK_COOKIE_SECRET = 'test-value';
+    delete process.env.AEO_REPORT_GATE;
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
@@ -209,7 +211,8 @@ describe('custom prompts follow report access', () => {
     expect(engineCalls()).toBe(0);
   });
 
-  it('observe: runs as today without the cookie', async () => {
+  it('report gate observe: runs without the cookie', async () => {
+    process.env.AEO_REPORT_GATE = 'observe';
     process.env.AEO_GATE_MODE = 'observe';
     addAudit(AUDIT_ID);
     const res = await call(AUDIT_ID);
