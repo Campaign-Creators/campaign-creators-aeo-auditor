@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createHmac } from 'node:crypto';
 import { reportAccess, reportGateMode, unlockRefusal, unlockToken } from './gate';
 
 const KEYS = ['AEO_GATE_MODE', 'AEO_REPORT_GATE', 'AEO_UNLOCK_COOKIE_SECRET', 'SUPABASE_SERVICE_ROLE_KEY'];
@@ -50,9 +51,10 @@ describe('unlock proof key', () => {
     expect(unlockToken('audit-1')).not.toBe(derived);
   });
 
-  it('the proof is not the server key or a plain hash of it', () => {
+  it('the proof is not signed with the server key itself (a separate derived key)', () => {
     const t = unlockToken('audit-1')!;
-    expect(t).not.toContain('service-role-key');
+    const withServerKey = createHmac('sha256', 'service-role-key').update('unlock:audit-1').digest('base64url');
+    expect(t).not.toBe(withServerKey);
   });
 
   it('no key at all gives no proof, so the report stays locked', () => {

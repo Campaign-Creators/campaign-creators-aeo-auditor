@@ -17,11 +17,13 @@ rate and shows as "coming soon" or "unavailable". It never counts as "not cited"
 
 ## Report access (`AEO_REPORT_GATE`)
 On by default. Without the per-audit unlock cookie, the report page, the status API and the
-print view send only the preview (overall score and grade, date, AI citation count), and
-custom questions are refused. An unlock is accepted only for a finished audit with results,
+print view send only the preview (overall score and grade, date, AI citation count; the
+status API also sends up to three short preview tips), and custom questions are refused. An unlock is accepted only for a finished audit with results,
 only with a real-looking work email (reserved example and test domains are refused), and
 writes nothing new when the same email unlocks the same audit again. One audit accepts at
-most five different emails. Staff unlock without the form.
+most five different emails. Staff unlock without the form (signed in, on
+`AEO_STAFF_EMAILS`); their unlock lasts the browser session. Anyone else who opens a report
+link, a CC rep from the CRM included, sees the preview until they unlock.
 
 | Value | What happens |
 |---|---|

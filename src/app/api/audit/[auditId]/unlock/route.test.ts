@@ -218,6 +218,15 @@ describe('unlock checks the audit and proves the unlock', () => {
     expect(res.headers.get('set-cookie') ?? '').toContain(`aeo_unlock_${AUDIT}=`);
   });
 
+  it('staff cookies last the browser session only (staff unlock again on each visit)', async () => {
+    staffMock.mockResolvedValueOnce('staff@example.com');
+    const { POST } = await import('./route');
+    const cookie = ((await POST(makeRequest({}), ctx)).headers.get('set-cookie') ?? '').toLowerCase();
+    expect(cookie).toContain(`aeo_unlock_${AUDIT}=`);
+    expect(cookie).not.toContain('max-age');
+    expect(cookie).not.toContain('expires');
+  });
+
   it('a public caller with an empty body is still refused', async () => {
     const { POST } = await import('./route');
     const res = await POST(makeRequest({}), ctx);
@@ -264,6 +273,21 @@ describe('unlock accepts only real ids and real details', () => {
 
     expect(res.status).toBe(429);
     expect(upsertMock).not.toHaveBeenCalled();
+    expect(syncMock).not.toHaveBeenCalled();
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('requests that pass the limit together: the ones past it get no CRM call and no access', async () => {
+    db.leads = Array.from({ length: 4 }, (_, i) => ({ audit_request_id: AUDIT, email: `p${i}@acme-widgets.com` }));
+    // Two other readers are written between this request's check and its own write.
+    upsertMock.mockImplementation((row: Record<string, string>) => {
+      db.leads.push({ audit_request_id: AUDIT, email: 'q1@acme-widgets.com' }, { audit_request_id: AUDIT, email: 'q2@acme-widgets.com' });
+      db.leads.push({ audit_request_id: row.audit_request_id, email: row.email });
+    });
+    const { POST } = await import('./route');
+    const res = await POST(makeRequest(validBody), ctx);
+
+    expect(res.status).toBe(429);
     expect(syncMock).not.toHaveBeenCalled();
     expect(res.headers.get('set-cookie')).toBeNull();
   });

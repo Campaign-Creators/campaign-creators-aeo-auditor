@@ -71,10 +71,9 @@ function findTopWeakness(result: {
  * starting an audit, so a visitor running several audits cannot exhaust their own
  * ability to read the reports.
  *
- * This is defence in depth, not the protection that matters: one request is enough to
- * write a contact, so the limit changes how fast, not whether. What stops an unlock from
- * damaging an existing CRM record is that the sync now fills blank fields only —
- * see lib/hubspot.ts.
+ * Other checks below: the audit must be finished, the address must be real-looking, a
+ * repeat reader writes nothing new, and each audit accepts a few readers. The CRM sync
+ * fills blank fields only (lib/hubspot.ts).
  */
 const UNLOCK_LIMIT = Number.parseInt(process.env.RATE_LIMIT_UNLOCK_MAX ?? '10', 10) || 10;
 
@@ -150,7 +149,8 @@ export async function POST(
 
   if (staff) {
     console.log('[unlock] staff view for audit', auditId);
-    return withUnlockProof(NextResponse.json({ success: true, staff: true }), auditId);
+    // Session only: staff unlock again on each visit, so their cookies don't pile up.
+    return withUnlockProof(NextResponse.json({ success: true, staff: true }), auditId, { session: true });
   }
 
   // ── 1. Known reader, or room for a new one ───────────────────────────
@@ -159,13 +159,7 @@ export async function POST(
     // Already captured: unlock again without a second write or CRM call.
     return withUnlockProof(NextResponse.json({ success: true }), auditId);
   }
-  if (seen && seen.total >= LEADS_PER_AUDIT_MAX) {
-    console.log('[unlock] lead limit reached for audit', auditId);
-    return NextResponse.json(
-      { error: 'This report has reached its limit of readers. Run your own free audit instead.' },
-      { status: 429 },
-    );
-  }
+  if (seen && seen.total >= LEADS_PER_AUDIT_MAX) return readerLimit(auditId);
 
   // ── 2. Save lead to Supabase ──────────────────────────────────────────
   const { error: leadError } = await supabase.from('leads').upsert(
@@ -180,6 +174,10 @@ export async function POST(
     console.error('[unlock] Supabase leads upsert failed:', JSON.stringify(leadError));
   } else {
     console.log('[unlock] lead saved for audit', auditId);
+    // Requests that passed the check together are counted again after writing, so the
+    // ones past the limit get neither the CRM sync nor access.
+    const after = seen ? await existingLeads(supabase, auditId, email) : null;
+    if (after && after.total > LEADS_PER_AUDIT_MAX) return readerLimit(auditId);
   }
 
   // Touch the audit_requests updated_at
@@ -290,12 +288,21 @@ async function existingLeads(
 }
 
 /** Sets the signed per-audit unlock cookie when a cookie key is available. */
-function withUnlockProof(res: NextResponse, auditId: string): NextResponse {
+function withUnlockProof(res: NextResponse, auditId: string, { session = false } = {}): NextResponse {
   const proof = unlockToken(auditId);
   if (proof) {
     res.cookies.set(unlockCookieName(auditId), proof, {
-      httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 365,
+      httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/',
+      ...(session ? {} : { maxAge: 60 * 60 * 24 * 365 }),
     });
   }
   return res;
+}
+
+function readerLimit(auditId: string): NextResponse {
+  console.log('[unlock] lead limit reached for audit', auditId);
+  return NextResponse.json(
+    { error: 'This report has reached its limit of readers. Run your own free audit instead.' },
+    { status: 429 },
+  );
 }
