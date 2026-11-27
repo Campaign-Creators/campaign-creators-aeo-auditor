@@ -216,6 +216,39 @@ export async function probePerplexity(
   };
 }
 
+/** Fetches an AI Overview by page_token (valid for about a minute after the search). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchAiOverview(pageToken: string, apiKey: string): Promise<any | null> {
+  try {
+    const params = new URLSearchParams({ engine: 'google_ai_overview', page_token: pageToken, api_key: apiKey });
+    const res = await fetch(`https://serpapi.com/search.json?${params.toString()}`);
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body?.ai_overview ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Flattens AI Overview text blocks, including list items and nested blocks, into plain text. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function overviewText(blocks: any[]): string {
+  const parts: string[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const walk = (items: any[]) => {
+    for (const b of items ?? []) {
+      if (!b) continue;
+      if (typeof b === 'string') { parts.push(b); continue; }
+      if (b.title) parts.push(b.title);
+      if (b.snippet || b.text) parts.push(b.snippet || b.text);
+      if (Array.isArray(b.list)) walk(b.list);
+      if (Array.isArray(b.text_blocks)) walk(b.text_blocks);
+    }
+  };
+  walk(blocks);
+  return parts.filter(Boolean).join(' ');
+}
+
 export async function probeGoogleAI(
   domain: string,
   companyName: string,
@@ -252,19 +285,21 @@ export async function probeGoogleAI(
       let aiText = '';
       let cited = false;
 
-      if (data.ai_overview) {
-        if (typeof data.ai_overview === 'string') {
-          aiText = data.ai_overview;
-        } else if (data.ai_overview.text) {
-          aiText = data.ai_overview.text;
-        } else if (data.ai_overview.text_blocks) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          aiText = data.ai_overview.text_blocks.map((b: any) => {
-            if (typeof b === 'string') return b;
-            return b.snippet || b.text || b.title || '';
-          }).filter(Boolean).join(' ');
-        } else if (data.ai_overview.snippet) {
-          aiText = data.ai_overview.snippet;
+      // Google often returns the AI Overview only as a short-lived page_token; the overview
+      // itself comes from SerpAPI's google_ai_overview engine and must be fetched right away.
+      let overview = data.ai_overview;
+      if (overview?.page_token && !overview.text_blocks) {
+        overview = await fetchAiOverview(overview.page_token, apiKey);
+      }
+      if (overview) {
+        if (typeof overview === 'string') {
+          aiText = overview;
+        } else if (overview.text_blocks) {
+          aiText = overviewText(overview.text_blocks);
+        } else if (overview.text) {
+          aiText = overview.text;
+        } else if (overview.snippet) {
+          aiText = overview.snippet;
         }
       }
 
@@ -299,8 +334,9 @@ export async function probeGoogleAI(
         cited = lower.includes(domainLower) || lower.includes(nameLower);
       }
 
-      if (!cited && data.ai_overview?.sources) {
-        for (const source of data.ai_overview.sources) {
+      const sources = [...(overview?.references ?? []), ...(overview?.sources ?? [])];
+      if (!cited && sources.length) {
+        for (const source of sources) {
           const link = (source.link || source.url || '').toLowerCase();
           const title = (source.title || source.name || '').toLowerCase();
           if (link.includes(domainLower) || title.includes(nameLower)) {
