@@ -123,6 +123,9 @@ export async function probeWithPrompts(
   };
 }
 
+/** The ChatGPT probe's model; OPENAI_MODEL overrides the default without a code change. */
+const OPENAI_MODEL = (): string => (process.env.OPENAI_MODEL ?? '').trim() || 'gpt-4o';
+
 export async function probeOpenAI(
   domain: string,
   companyName: string,
@@ -138,8 +141,9 @@ export async function probeOpenAI(
   for (const prompt of prompts) {
     try {
       const response = await client.chat.completions.create({
-        model: 'gpt-4o',
-        max_tokens: 1024,
+        model: OPENAI_MODEL(),
+        // max_completion_tokens works for gpt-4o and for newer models, which reject max_tokens.
+        max_completion_tokens: 1024,
         messages: [{ role: 'user', content: prompt }],
       });
       const text = response.choices[0]?.message?.content || '';
@@ -152,8 +156,11 @@ export async function probeOpenAI(
         mentionedDomains: extractMentionedDomains(text),
         snippet: cited ? findSnippet(text, variants) : null,
       });
-    } catch {
+    } catch (err) {
       // Not answered is not a miss: left out so an outage doesn't lower the citation rate.
+      // Log status and code only (never the message), so a failing engine can be diagnosed.
+      const e = err as { status?: unknown; code?: unknown; type?: unknown; name?: unknown };
+      console.error(`[ChatGPT probe] failed: status=${String(e?.status ?? 'none')} code=${String(e?.code ?? e?.type ?? e?.name ?? 'unknown')} model=${OPENAI_MODEL()}`);
     }
   }
 
